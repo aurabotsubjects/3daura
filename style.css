@@ -257,6 +257,7 @@
     background: #fff; color: #000; transition: all 0.15s ease; text-transform: uppercase;
   }
   .panel-actions button:hover { background: #000; color: #fff; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+  .panel-actions button:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
   .panel-actions button.btn-wide { grid-column: span 2; font-size: 11px; padding: 10px; }
   .panel-actions button.btn-cyan { background: #2EE2FA; color: #000; }
   .panel-actions button.btn-cyan:hover { background: #000; color: #2EE2FA; }
@@ -325,6 +326,7 @@
   }
   .btn-consume:hover { transform: scale(1.08); background: #2EE2FA; color: #000; }
   .inv-empty { text-align: center; color: #777; font-size: 11px; font-weight: 800; padding: 20px 0; }
+  .pet-empty { text-align: center; color: #777; font-size: 10px; font-weight: 800; padding: 14px 6px; text-transform: none; line-height: 1.5; }
 
   /* ---------- PET MENU (P to Toggle) ---------- */
   #petPanel {

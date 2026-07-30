@@ -94,7 +94,7 @@
   scene.background = new THREE.Color(COLORS.bg);
   scene.fog = new THREE.Fog(COLORS.bg, 110, 195);
 
-  const camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 200);
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 900);
   const renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -145,12 +145,13 @@
   // ---------- DAY / NIGHT CYCLE ----------
   // settings.dayNightSpeed is adjusted live from the Settings panel slider.
   const settings = {
-    dayNightEnabled: true, dayNightSpeed: 1.0,
-    petGapDog: 6.8, petGapCat: 4.4, petGapBird: 4.0, petGapAlpaca: 4.0, petGapBunny: 3.2, petGapFrog: 2.6, petGapMonkey: 2.0, petGapPanda: 3.0, petGapOwl: 5.0, petGapDragon: 4.6
+    dayNightEnabled: true, dayNightSpeed: 1.0, fogFar: 195,
+    petGapDog: 6.8, petGapCat: 4.4, petGapBird: 4.0, petGapAlpaca: 4.0, petGapBunny: 3.2, petGapFrog: 2.6, petGapMonkey: 2.0, petGapPanda: 3.0, petGapOwl: 5.0, petGapDragon: 4.6, petGapLamb: 3.6
   };
   const DAYNIGHT_SUN_DIST = 55;
   const DAYNIGHT_BASE_DURATION = 90; // seconds for one full day/night cycle at speed = 1.0x
   let dayNightPhase = 0.30; // 0..1 — start partway into a bright, sunny daytime
+  let nightFactor = 0; // 0 (full day) .. 1 (full night) — drives the stars' fade-in, updated below
 
   function computeSkyColor(sunHeight) {
     // sunHeight ranges -1 (midnight) .. 0 (horizon) .. 1 (noon)
@@ -185,8 +186,123 @@
     const skyColor = computeSkyColor(sunHeight);
     scene.background.copy(skyColor);
     scene.fog.color.copy(skyColor);
+
+    // 0 while the sun's up, ramping to 1 once it dips more than ~30% below the horizon
+    nightFactor = THREE.MathUtils.clamp(-sunHeight / 0.3, 0, 1);
   }
   updateDayNightCycle(0); // initialize sky/lighting to match the starting phase before the first frame
+
+  // ---------- BACKGROUND: JUPITER ----------
+  // A big stylized planet sitting far off in the sky behind the map. It's placed
+  // well beyond all the landmarks/dispensers (which top out around ±65 units) so
+  // it reads as a distant backdrop, with subtle parallax as AURA moves around.
+  function createJupiterTexture() {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+    const ctx = c.getContext('2d');
+    const bandColors = ['#D9BA8C', '#C9A876', '#E8CBA0', '#B98A54', '#F0DAB0', '#A9754B', '#DFC194', '#8B5A2B', '#EAD2A6', '#C08A52'];
+    let y = 0;
+    while (y < c.height) {
+      const bandH = 10 + Math.random() * 42;
+      ctx.fillStyle = bandColors[Math.floor(Math.random() * bandColors.length)];
+      ctx.fillRect(0, y, c.width, bandH);
+      y += bandH;
+    }
+    // soft turbulent swirls layered over the bands for texture
+    for (let i = 0; i < 50; i++) {
+      ctx.globalAlpha = 0.12 + Math.random() * 0.18;
+      ctx.fillStyle = bandColors[Math.floor(Math.random() * bandColors.length)];
+      const cx = Math.random() * c.width, cy = Math.random() * c.height;
+      const rx = 30 + Math.random() * 100, ry = 8 + Math.random() * 22;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // the Great Red Spot
+    const spotGrad = ctx.createRadialGradient(700, 330, 6, 700, 330, 78);
+    spotGrad.addColorStop(0, '#C1442D'); spotGrad.addColorStop(0.55, '#B5502E'); spotGrad.addColorStop(1, 'rgba(181,80,46,0)');
+    ctx.fillStyle = spotGrad;
+    ctx.beginPath(); ctx.ellipse(700, 330, 92, 52, 0, 0, Math.PI * 2); ctx.fill();
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    return tex;
+  }
+  const jupiterGroup = new THREE.Group();
+  jupiterGroup.position.set(170, 130, -400);
+  jupiterGroup.rotation.z = 0.32; // slight axial tilt, shared by the planet and its ring
+  jupiterGroup.renderOrder = -1; // always draw behind regular scene geometry
+  scene.add(jupiterGroup);
+
+  const jupiter = new THREE.Mesh(
+    new THREE.SphereGeometry(52, 48, 32),
+    new THREE.MeshBasicMaterial({ map: createJupiterTexture(), fog: false })
+  );
+  jupiterGroup.add(jupiter);
+
+  // A soft, banded ring - RingGeometry's UVs map radius to V and angle to U, so
+  // horizontal bands in this texture read as concentric bands around the ring.
+  function createJupiterRingTexture() {
+    const c = document.createElement('canvas'); c.width = 8; c.height = 256;
+    const ctx = c.getContext('2d');
+    const bandColors = ['#D9C39A', '#C7AD7E', '#E4D3AC', '#B79868', '#DCC796'];
+    let y = 0;
+    while (y < c.height) {
+      const bandH = 6 + Math.random() * 20;
+      ctx.fillStyle = bandColors[Math.floor(Math.random() * bandColors.length)];
+      ctx.globalAlpha = 0.35 + Math.random() * 0.45;
+      ctx.fillRect(0, y, c.width, bandH);
+      y += bandH;
+    }
+    // fade both the inner and outer edges to fully transparent
+    const fade = ctx.createLinearGradient(0, 0, 0, c.height);
+    fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.12, 'rgba(0,0,0,0)');
+    fade.addColorStop(0.88, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = fade; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.globalCompositeOperation = 'source-over';
+    return new THREE.CanvasTexture(c);
+  }
+  const jupiterRing = new THREE.Mesh(
+    new THREE.RingGeometry(72, 108, 64, 1),
+    new THREE.MeshBasicMaterial({ map: createJupiterRingTexture(), transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, fog: false })
+  );
+  jupiterRing.rotation.x = Math.PI / 2; // lie flat in the planet's equatorial plane
+  jupiterGroup.add(jupiterRing);
+
+  // ---------- BACKGROUND: NIGHT STARS ----------
+  // A scattered field of soft glowing dots on a huge sphere shell around the map.
+  // Invisible by day - opacity is driven every frame by nightFactor (see animate()).
+  function createStarDotTexture() {
+    const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.8)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 32, 32);
+    return new THREE.CanvasTexture(c);
+  }
+  const STAR_COUNT = 1100, STAR_RADIUS = 480;
+  const starPositions = new Float32Array(STAR_COUNT * 3);
+  const starColors = new Float32Array(STAR_COUNT * 3);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    // random direction, biased toward the upper hemisphere so stars aren't wasted underground
+    let x = Math.random() * 2 - 1, y = Math.random() * 0.85 + 0.1, z = Math.random() * 2 - 1;
+    const len = Math.hypot(x, y, z);
+    x /= len; y /= len; z /= len;
+    starPositions[i * 3] = x * STAR_RADIUS; starPositions[i * 3 + 1] = y * STAR_RADIUS; starPositions[i * 3 + 2] = z * STAR_RADIUS;
+    const brightness = 0.55 + Math.random() * 0.45;
+    const tint = Math.random() < 0.15 ? [brightness * 0.85, brightness * 0.9, brightness] : [brightness, brightness, brightness * 0.95]; // a few faint blue-white stars
+    starColors[i * 3] = tint[0]; starColors[i * 3 + 1] = tint[1]; starColors[i * 3 + 2] = tint[2];
+  }
+  const nightStarGeo = new THREE.BufferGeometry();
+  nightStarGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  nightStarGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+  const starMat = new THREE.PointsMaterial({
+    size: 2.6, map: createStarDotTexture(), vertexColors: true, transparent: true, opacity: 0,
+    depthWrite: false, sizeAttenuation: false, blending: THREE.AdditiveBlending, fog: false
+  });
+  const stars = new THREE.Points(nightStarGeo, starMat);
+  stars.renderOrder = -2;
+  scene.add(stars);
 
   const outlineMaterial = new THREE.ShaderMaterial({
     uniforms: { outlineColor: { value: new THREE.Color(COLORS.outline) }, outlineThickness: { value: 0.05 }, outlineOpacity: { value: 1.0 } },
@@ -2595,7 +2711,167 @@
   }
 
   // ======================================================================
-  // ---------- PET MENU: active follow chain (max 3) + custom names/colors (press P) ----------
+  // ---------- PET: MINI ROBOT LAMB COMPANION (follows whoever's ahead of it) ----------
+  // Unlike the other companions, the Lamb only ever leaps - even at rest it keeps
+  // bouncing gently in place, like a real lamb. It also only offers 3 color looks
+  // (White / Black / Black & White) instead of the full palette - see the
+  // LAMB_COLOR_PALETTE + petPaletteOverrides section further down.
+  // ======================================================================
+  const LAMB_BODY_WID = 0.36, LAMB_BODY_HT = 0.30, LAMB_BODY_LEN = 0.42;
+  const LAMB_LEG_LEN = 0.20, LAMB_PAW_HT = 0.05;
+  const LAMB_LEG_REACH = LAMB_LEG_LEN + LAMB_PAW_HT;
+  const LAMB_HIP_Y = -0.05;
+  const LAMB_GROUND_OFFSET = LAMB_HIP_Y - LAMB_LEG_REACH;
+  const LAMB_BASE_Y = -4.65 - LAMB_GROUND_OFFSET;
+  const LAMB_BODY_Y = LAMB_HIP_Y + LAMB_BODY_HT / 2 + 0.06;
+
+  const lambAnimBones = { legFL: null, legFR: null, legBL: null, legBR: null, head: null, earL: null, earR: null, tail: null };
+  const petLamb = new THREE.Group();
+  petLamb.position.set(petDragon.position.x, LAMB_BASE_Y, petDragon.position.z - 2.0);
+  scene.add(petLamb);
+
+  // Own material instances (not shared with AURA or other pets) so this pet's
+  // body color can be set independently from the Pet Menu color swatches.
+  const lambMatMain = bodyMat(0xF7F5EF); // fleece - White/Black/Black&White base
+  const lambMatFace = bodyMat(0x2B2B2E); // face, ears, legs, and (when shown) patches
+
+  // ---- Body (torso + a scatter of wool "puff" spheres for a fluffy silhouette) ----
+  const lambBody = new THREE.Group(); lambBody.position.set(0, LAMB_BODY_Y, 0); petLamb.add(lambBody);
+  const lambTorso = new THREE.Mesh(roundedBoxGeometry(LAMB_BODY_WID, LAMB_BODY_HT, LAMB_BODY_LEN, 0.15), lambMatMain);
+  lambTorso.castShadow = true; lambTorso.receiveShadow = true; addOutline(lambTorso, 0.035); lambBody.add(lambTorso);
+
+  // Wool puffs: most always match the fleece; two are set aside as "patches" and
+  // stay hidden unless the Black & White look is selected (see setColor below).
+  const lambPatches = [];
+  const puffSpots = [
+    { x: -0.13, y: 0.09, z: 0.1, r: 0.1, patch: false },
+    { x: 0.13, y: 0.09, z: 0.1, r: 0.1, patch: true },
+    { x: -0.14, y: 0.08, z: -0.12, r: 0.1, patch: true },
+    { x: 0.14, y: 0.08, z: -0.12, r: 0.1, patch: false },
+    { x: 0, y: 0.13, z: -0.02, r: 0.11, patch: false },
+  ];
+  puffSpots.forEach(s => {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(s.r, 12, 10), s.patch ? lambMatFace : lambMatMain);
+    puff.position.set(s.x, s.y, s.z); puff.castShadow = true; addOutline(puff, 0.025); lambBody.add(puff);
+    if (s.patch) { puff.visible = false; lambPatches.push(puff); }
+  });
+
+  // ---- Head (small, dark "face" like a classic Suffolk lamb, with a wool tuft) ----
+  const lambHead = new THREE.Group();
+  lambHead.position.set(0, LAMB_BODY_HT / 2 + 0.1, LAMB_BODY_LEN / 2 - 0.02);
+  lambAnimBones.head = lambHead; lambBody.add(lambHead);
+  const lambHeadShell = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 14), lambMatFace);
+  lambHeadShell.castShadow = true; addOutline(lambHeadShell, 0.032); lambHead.add(lambHeadShell);
+  const lambMuzzle = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 10), lambMatFace);
+  lambMuzzle.position.set(0, -0.06, 0.11); lambMuzzle.castShadow = true; addOutline(lambMuzzle, 0.02); lambHead.add(lambMuzzle);
+  const lambTopknot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 10), lambMatMain);
+  lambTopknot.position.set(0, 0.1, -0.02); addOutline(lambTopknot, 0.02); lambHead.add(lambTopknot);
+  const lambEyeGeo = new THREE.SphereGeometry(0.04, 12, 10);
+  const lambEyeMat = new THREE.MeshStandardMaterial({ color: 0x2EE2FA, emissive: 0x2EE2FA, emissiveIntensity: 1.0 });
+  const lambEyeL = new THREE.Mesh(lambEyeGeo, lambEyeMat); lambEyeL.position.set(-0.08, 0.02, 0.1); lambHead.add(lambEyeL);
+  const lambEyeR = new THREE.Mesh(lambEyeGeo, lambEyeMat); lambEyeR.position.set(0.08, 0.02, 0.1); lambHead.add(lambEyeR);
+
+  // Small floppy ears
+  function buildLambEar(sign) {
+    const hinge = new THREE.Group(); hinge.position.set(sign * 0.14, 0.02, 0.03); hinge.rotation.z = sign * 0.5;
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.14, 10), lambMatFace);
+    ear.rotation.x = Math.PI / 2 * 0.9; ear.position.set(0, 0, 0.02);
+    ear.castShadow = true; addOutline(ear, 0.018); hinge.add(ear);
+    return hinge;
+  }
+  lambAnimBones.earL = buildLambEar(-1); lambHead.add(lambAnimBones.earL);
+  lambAnimBones.earR = buildLambEar(1); lambHead.add(lambAnimBones.earR);
+
+  // ---- Tail (little wool stub) ----
+  const lambTailHinge = new THREE.Group();
+  lambTailHinge.position.set(0, LAMB_BODY_HT * 0.1, -LAMB_BODY_LEN / 2 + 0.02);
+  lambAnimBones.tail = lambTailHinge; lambBody.add(lambTailHinge);
+  const lambTailPuff = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), lambMatMain);
+  addOutline(lambTailPuff, 0.02); lambTailHinge.add(lambTailPuff);
+
+  // ---- Legs (simple single-segment robot legs - hip joint only, no knee) ----
+  function buildLambLeg(signX, isFront) {
+    const legZ = isFront ? LAMB_BODY_LEN * 0.3 : -LAMB_BODY_LEN * 0.3;
+    const hip = new THREE.Group(); hip.position.set(signX * (LAMB_BODY_WID / 2 - 0.04), LAMB_HIP_Y, legZ);
+    const hipBall = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), lambMatFace); hipBall.castShadow = true; addOutline(hipBall, 0.015); hip.add(hipBall);
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.032, LAMB_LEG_LEN, 12), lambMatFace);
+    thigh.position.y = -LAMB_LEG_LEN / 2; thigh.castShadow = true; addOutline(thigh, 0.014); hip.add(thigh);
+    const paw = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 10), lambMatFace);
+    paw.position.y = -(LAMB_LEG_LEN + LAMB_PAW_HT / 2); paw.castShadow = true; addOutline(paw, 0.014); hip.add(paw);
+    return { hip };
+  }
+  lambAnimBones.legFL = buildLambLeg(-1, true);  petLamb.add(lambAnimBones.legFL.hip);
+  lambAnimBones.legFR = buildLambLeg(1, true);   petLamb.add(lambAnimBones.legFR.hip);
+  lambAnimBones.legBL = buildLambLeg(-1, false); petLamb.add(lambAnimBones.legBL.hip);
+  lambAnimBones.legBR = buildLambLeg(1, false);  petLamb.add(lambAnimBones.legBR.hip);
+
+  // ---- Follow / leap state ----
+  let lambFacing = petDragon.rotation.y;
+  let lambHopPhase = 0;
+  let lambIsMoving = false;
+  let lambSettleAmount = 0;
+  let LAMB_FOLLOW_DIST = 3.6;
+  const LAMB_FOLLOW_SIDE = -0.5;
+  const LAMB_ARRIVE_DIST = 0.4;
+  const LAMB_IDLE_HOP_RATE = 2.6;  // gentle continuous bounce while settled - it never really stands still
+  const LAMB_MOVE_HOP_RATE = 6.5;  // quicker leaping cadence while actually travelling to catch up
+
+  function updatePetLamb(dt, time, leader) {
+    const forwardX = Math.sin(leader.rotY), forwardZ = Math.cos(leader.rotY);
+    const rightX = Math.cos(leader.rotY), rightZ = -Math.sin(leader.rotY);
+    const targetX = leader.x - forwardX * LAMB_FOLLOW_DIST + rightX * LAMB_FOLLOW_SIDE;
+    const targetZ = leader.z - forwardZ * LAMB_FOLLOW_DIST + rightZ * LAMB_FOLLOW_SIDE;
+
+    const prevX = petLamb.position.x, prevZ = petLamb.position.z;
+    const distToSpot = Math.hypot(targetX - prevX, targetZ - prevZ);
+    const isTravelling = distToSpot > LAMB_ARRIVE_DIST;
+    lambIsMoving = isTravelling;
+    lambSettleAmount = THREE.MathUtils.lerp(lambSettleAmount, isTravelling ? 0 : 1, Math.min(1, dt * 4));
+
+    const followLerp = 1 - Math.pow(0.0025, dt);
+    petLamb.position.x += (targetX - prevX) * followLerp;
+    petLamb.position.z += (targetZ - prevZ) * followLerp;
+
+    const dx = petLamb.position.x - prevX, dz = petLamb.position.z - prevZ;
+    if (Math.hypot(dx, dz) > 0.0006) {
+      const desiredFacing = Math.atan2(dx, dz);
+      let diff = desiredFacing - lambFacing;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      lambFacing += diff * Math.min(1, dt * 9);
+    } else {
+      let diff = leader.rotY - lambFacing;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      lambFacing += diff * Math.min(1, dt * 2);
+    }
+    petLamb.rotation.y = lambFacing;
+
+    // --- The leap: always bouncing, whether it's catching up or just hanging around ---
+    const hopRate = isTravelling ? LAMB_MOVE_HOP_RATE : LAMB_IDLE_HOP_RATE;
+    lambHopPhase += dt * hopRate;
+    const hopArc = Math.abs(Math.sin(lambHopPhase)); // 0 on the ground, 1 at the peak of each leap
+    const hopAmplitude = isTravelling ? 0.34 : 0.16;
+    petLamb.position.y = LAMB_BASE_Y + hopArc * hopAmplitude;
+
+    // Legs kick out mid-air and tuck back down on landing - front & back pairs
+    // swing in a simple opposing rhythm for a springy, four-on-the-floor leap.
+    const legSwing = Math.sin(lambHopPhase) * 0.55;
+    lambAnimBones.legFL.hip.rotation.x = -legSwing; lambAnimBones.legFR.hip.rotation.x = -legSwing;
+    lambAnimBones.legBL.hip.rotation.x = legSwing;  lambAnimBones.legBR.hip.rotation.x = legSwing;
+
+    // Body dips slightly right before push-off and stretches a touch at the peak
+    lambBody.rotation.x = hopArc * 0.1;
+    lambBody.position.y = LAMB_BODY_Y + hopArc * 0.02;
+
+    // Head bobs opposite the body, ears flop on the way down, tail flicks on landing
+    lambHead.rotation.x = -hopArc * 0.15 + Math.sin(time * 0.002) * 0.02;
+    const earFlop = (1 - hopArc) * 0.25;
+    lambAnimBones.earL.rotation.x = earFlop; lambAnimBones.earR.rotation.x = earFlop;
+    lambTailHinge.rotation.x = -Math.max(0, 1 - hopArc - 0.7) * 1.2;
+  }
+
+
   // Each pet type already knows how to steer toward a "leader" and how to
   // report whether it's currently settled. That's everything needed to chain
   // them together dynamically: AURA hands off a leader object to whichever
@@ -2620,11 +2896,20 @@
     owl:    { label: 'Owl',    icon: '🦉', group: petOwl,    update: updatePetOwl,    isMoving: () => owlGroundedAmount <= 0.9,     settled: () => owlGroundedAmount,     setColor: (m, d) => { owlMatMain.color.setHex(m); owlMatDark.color.setHex(d); } },
     dragon: { label: 'Dragon', icon: '🐉', group: petDragon, update: updatePetDragon, isMoving: () => dragonIsTrotting,             settled: () => dragonCurlAmount,      setColor: (m, d) => { dragonMatMain.color.setHex(m); dragonMatDark.color.setHex(d); } },
     koala:  { label: 'Koala',  icon: '🐨', group: petKoala,  update: updatePetKoala,  isMoving: () => false,                        settled: () => 1,                     setColor: (m, d) => { koalaMatMain.color.setHex(m); koalaMatDark.color.setHex(d); } },
+    lamb:   { label: 'Lamb',   icon: '🐑', group: petLamb,   update: updatePetLamb,   isMoving: () => lambIsMoving,                 settled: () => lambSettleAmount,      setColor: (m, d) => { lambMatMain.color.setHex(m); lambMatFace.color.setHex(d); lambPatches.forEach(p => { p.visible = petColors.lamb === 'blackwhite'; }); } },
   };
   const ALL_PET_IDS = Object.keys(petTypes);
-  let petActiveOrder = ['dog', 'cat', 'bird'];                                                     // follows AURA, in this order - max 3
-  let petInactiveOrder = ['alpaca', 'bunny', 'frog', 'monkey', 'panda', 'owl', 'dragon', 'koala']; // parked, not following
-  const petNames = { dog: 'Dog', cat: 'Cat', bird: 'Bird', alpaca: 'Alpaca', bunny: 'Bunny', frog: 'Frog', monkey: 'Monkey', panda: 'Panda', owl: 'Owl', dragon: 'Dragon', koala: 'Koala' };
+
+  // AURA starts with NO pets at all. Pets are only ever added to petOwned (and,
+  // from there, to the active/inactive rosters below) by adopting them from the
+  // Pet Adoption Box (see "PET ADOPTION BOX" landmark further down). Only owned
+  // pets ever occupy a slot in petActiveOrder/petInactiveOrder or show up in the
+  // Pet Menu (press P) - unowned pets stay fully hidden and untouched.
+  const petOwned = {};
+  ALL_PET_IDS.forEach(id => { petOwned[id] = false; });
+  let petActiveOrder = [];   // owned pets currently following AURA, in order - max 3
+  let petInactiveOrder = []; // owned pets currently benched ("Not Following")
+  const petNames = { dog: 'Dog', cat: 'Cat', bird: 'Bird', alpaca: 'Alpaca', bunny: 'Bunny', frog: 'Frog', monkey: 'Monkey', panda: 'Panda', owl: 'Owl', dragon: 'Dragon', koala: 'Koala', lamb: 'Lamb' };
 
   // Toon-flat colors pulled from this app's own palette (status badges, HUD
   // accents, AURA's theme swatches) so every option already matches the vibe.
@@ -2640,13 +2925,25 @@
     { id: 'brown',  label: 'Brown',  main: 0x8B5A2B, dark: 0x5C3A1A },
     { id: 'white',  label: 'White',  main: 0xF5F5F0, dark: 0xD8D8D0 },
   ];
-  const petColors = { dog: 'orange', cat: 'orange', bird: 'orange', alpaca: 'orange', bunny: 'orange', frog: 'green', monkey: 'brown', panda: 'white', owl: 'gold', dragon: 'green', koala: 'silver' };
-  function colorDefFor(id) { return PET_COLOR_PALETTE.find(c => c.id === petColors[id]) || PET_COLOR_PALETTE[0]; }
+  const petColors = { dog: 'orange', cat: 'orange', bird: 'orange', alpaca: 'orange', bunny: 'orange', frog: 'green', monkey: 'brown', panda: 'white', owl: 'gold', dragon: 'green', koala: 'silver', lamb: 'white' };
+
+  // The Lamb only offers 3 looks (real lambs don't come in Prismatic!) instead of
+  // the full 10-color palette above - this map lets a pet swap out its whole
+  // palette; anyone not listed here just uses PET_COLOR_PALETTE as normal.
+  const LAMB_COLOR_PALETTE = [
+    { id: 'white',      label: 'White',           main: 0xF7F5EF, dark: 0x2B2B2E },
+    { id: 'black',      label: 'Black',           main: 0x2B2B2E, dark: 0x141416 },
+    { id: 'blackwhite', label: 'Black & White',   main: 0xF7F5EF, dark: 0x2B2B2E, swatch: 'linear-gradient(135deg, #F7F5EF 50%, #2B2B2E 50%)' },
+  ];
+  const petPaletteOverrides = { lamb: LAMB_COLOR_PALETTE };
+  function paletteFor(id) { return petPaletteOverrides[id] || PET_COLOR_PALETTE; }
+  function colorDefFor(id) { return paletteFor(id).find(c => c.id === petColors[id]) || paletteFor(id)[0]; }
 
   const PET_SETTINGS_KEY = 'aura_pets_v1';
   function savePetSettings() {
     try {
       localStorage.setItem(PET_SETTINGS_KEY, JSON.stringify({
+        owned: ALL_PET_IDS.filter(id => petOwned[id]),
         active: petActiveOrder, inactive: petInactiveOrder, names: petNames, colors: petColors
       }));
     } catch (err) { console.error('AURA pet settings save failed:', err); }
@@ -2660,10 +2957,19 @@
     if (!data || typeof data !== 'object') return;
 
     const validIds = arr => Array.isArray(arr) && arr.every(id => petTypes[id]);
+
+    // Only ever restore pets that were actually adopted - anything else stays
+    // un-owned and invisible, even if it's referenced in old/corrupt data.
+    let ownedSet = new Set();
+    if (validIds(data.owned)) ownedSet = new Set(data.owned);
+
     if (validIds(data.active) && validIds(data.inactive) &&
         data.active.length <= MAX_ACTIVE_PETS &&
-        new Set([...data.active, ...data.inactive]).size === ALL_PET_IDS.length &&
-        data.active.length + data.inactive.length === ALL_PET_IDS.length) {
+        data.active.every(id => ownedSet.has(id)) &&
+        data.inactive.every(id => ownedSet.has(id)) &&
+        new Set([...data.active, ...data.inactive]).size === ownedSet.size &&
+        data.active.length + data.inactive.length === ownedSet.size) {
+      ownedSet.forEach(id => { petOwned[id] = true; });
       petActiveOrder = data.active;
       petInactiveOrder = data.inactive;
     }
@@ -2674,7 +2980,7 @@
     }
     if (data.colors && typeof data.colors === 'object') {
       Object.keys(petColors).forEach(id => {
-        if (PET_COLOR_PALETTE.some(c => c.id === data.colors[id])) petColors[id] = data.colors[id];
+        if (paletteFor(id).some(c => c.id === data.colors[id])) petColors[id] = data.colors[id];
       });
     }
   }
@@ -2682,12 +2988,38 @@
   // Apply loaded (or default) colors to the actual materials right away.
   ALL_PET_IDS.forEach(id => { const c = colorDefFor(id); petTypes[id].setColor(c.main, c.dark); });
 
-  // Only active/following pets are ever visible in the scene - anyone benched
-  // to "Not Following" is fully hidden (and skipped in updateAllPets below).
+  // Set (non-null) by the Pet Adoption Box code further down while a freshly-
+  // purchased pet is popping out of the box and walking over to AURA. Declared
+  // up-front so applyPetVisibility (called immediately below, before the box
+  // code exists) can safely check it.
+  let petAdoptionAnim = null;
+
+  // Only OWNED pets that are also actively following are ever visible in the
+  // scene - unowned pets and anyone benched to "Not Following" are fully hidden
+  // (and skipped in updateAllPets below). A pet mid-adoption-animation (see the
+  // Pet Adoption Box further down) manages its own group.visible directly and
+  // is skipped here so the reveal/walk-in animation isn't stomped on.
   function applyPetVisibility() {
-    ALL_PET_IDS.forEach(id => { petTypes[id].group.visible = petActiveOrder.includes(id); });
+    ALL_PET_IDS.forEach(id => {
+      if (petAdoptionAnim && petAdoptionAnim.id === id) return;
+      petTypes[id].group.visible = petOwned[id] && petActiveOrder.includes(id);
+    });
   }
   applyPetVisibility();
+
+  // Called the instant a newly-purchased pet finishes emerging from the Pet
+  // Adoption Box and walking over to join AURA. Marks it owned, slots it into
+  // the follow chain if there's room (else benches it "Not Following"), and
+  // refreshes the Pet Menu so it shows up there from now on.
+  function acquirePet(id) {
+    if (petOwned[id]) return;
+    petOwned[id] = true;
+    if (petActiveOrder.length < MAX_ACTIVE_PETS) petActiveOrder.push(id);
+    else petInactiveOrder.push(id);
+    applyPetVisibility();
+    renderPetLists();
+    savePetSettings();
+  }
 
   // Walks the current active follow order, handing each pet a leader object
   // built from whoever (or whatever - AURA herself, for the first link) is
@@ -2803,12 +3135,12 @@
     // ---- Color swatches: a compact row of toon-palette dots to recolor this pet ----
     const swatchLine = document.createElement('div');
     swatchLine.className = 'pet-color-row';
-    PET_COLOR_PALETTE.forEach(c => {
+    paletteFor(id).forEach(c => {
       const sw = document.createElement('button');
       sw.type = 'button';
       sw.draggable = false;
       sw.className = 'pet-swatch' + (petColors[id] === c.id ? ' selected' : '');
-      sw.style.background = hexCss(c.main);
+      sw.style.background = c.swatch || hexCss(c.main);
       sw.title = c.label;
       sw.addEventListener('click', e => {
         e.stopPropagation();
@@ -2867,7 +3199,16 @@
 
   function renderPetLists() {
     petActiveListEl.innerHTML = '';
-    petActiveOrder.forEach((id, index) => petActiveListEl.appendChild(buildPetRow(id, index, 'active')));
+    if (petActiveOrder.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'pet-empty';
+      empty.textContent = ALL_PET_IDS.some(id => petOwned[id])
+        ? 'Nobody following right now - drag a pet up from below!'
+        : "No pets yet - visit the 📦 Pet Adoption Box to adopt one!";
+      petActiveListEl.appendChild(empty);
+    } else {
+      petActiveOrder.forEach((id, index) => petActiveListEl.appendChild(buildPetRow(id, index, 'active')));
+    }
     petInactiveListEl.innerHTML = '';
     petInactiveOrder.forEach((id, index) => petInactiveListEl.appendChild(buildPetRow(id, index, 'inactive')));
     petActiveCountEl.textContent = String(petActiveOrder.length);
@@ -2913,6 +3254,7 @@
   }
 
   const sparkleGroup = new THREE.Group(); robot.add(sparkleGroup);
+  sparkleGroup.visible = false; // only shown for the shinier color themes - see the palette click handler further down
   function createSparkleTexture() {
     const c = document.createElement('canvas'); c.width = 128; c.height = 128;
     const ctx = c.getContext('2d');
@@ -3212,6 +3554,177 @@
   const buildRing = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.05, 12, 32), cubeIconMat);
   buildRing.rotation.x = Math.PI / 2; buildRing.position.y = -1.1; addOutline(buildRing, 0.03); buildBeacon.add(buildRing);
 
+  // ---------- 3D LANDMARK 6: PET ADOPTION BOX (9, 50.25) ----------
+  // Sits directly south of ("below") the Kiosk (9,-3) at the same ~54-unit
+  // radius as the Build Dispenser (which sits directly north of the Kiosk) -
+  // together with the Snack (west) and Nature (east) Dispensers, this completes
+  // a balanced 4-point compass rose of landmarks around the Kiosk/Bank hub.
+  const ADOPT_X = 9, ADOPT_Z = 50.25;
+  const adoptGroup = new THREE.Group();
+  adoptGroup.position.set(ADOPT_X, -4.65, ADOPT_Z);
+  adoptGroup.rotation.y = Math.PI; // front (sticker + opening) faces back north, toward the Kiosk/spawn
+  scene.add(adoptGroup);
+
+  const adoptBase = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.4, 0.6, 20), bodyMat(COLORS.grey));
+  adoptBase.position.y = 0.3; adoptBase.castShadow = true; adoptBase.receiveShadow = true; addOutline(adoptBase, 0.05); adoptGroup.add(adoptBase);
+
+  const CARDBOARD_COLOR = 0xC68642, CARDBOARD_DARK = 0x9C6B36;
+  const ADOPT_BOX_HALF = 1.6, ADOPT_BOX_TOP_Y = 3.0;
+
+  const adoptBoxBody = new THREE.Mesh(roundedBoxGeometry(ADOPT_BOX_HALF * 2, 2.4, ADOPT_BOX_HALF * 2, 0.12), bodyMat(CARDBOARD_COLOR));
+  adoptBoxBody.position.y = 1.8; adoptBoxBody.castShadow = true; adoptBoxBody.receiveShadow = true; addOutline(adoptBoxBody, 0.06); adoptGroup.add(adoptBoxBody);
+
+  // Dark "open cavity" strip, sitting just below the flaps' resting height so it's
+  // hidden while closed and only reads as an opening once the flaps swing outward.
+  const adoptCavity = new THREE.Mesh(new THREE.PlaneGeometry(ADOPT_BOX_HALF * 1.7, ADOPT_BOX_HALF * 1.7), bodyMat(0x0B0C10));
+  adoptCavity.rotation.x = -Math.PI / 2; adoptCavity.position.y = ADOPT_BOX_TOP_Y - 0.03; adoptGroup.add(adoptCavity);
+
+  // Packing-tape cross across the top
+  const tapeMatAdopt = bodyMat(CARDBOARD_DARK);
+  const tapeStripA = new THREE.Mesh(new THREE.BoxGeometry(ADOPT_BOX_HALF * 2.02, 0.05, 0.5), tapeMatAdopt);
+  tapeStripA.position.y = ADOPT_BOX_TOP_Y + 0.03; adoptGroup.add(tapeStripA);
+  const tapeStripB = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, ADOPT_BOX_HALF * 2.02), tapeMatAdopt);
+  tapeStripB.position.y = ADOPT_BOX_TOP_Y + 0.03; adoptGroup.add(tapeStripB);
+
+  // Round animal sticker on the front face
+  function createAdoptStickerTexture() {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 256, 256);
+    ctx.fillStyle = '#FFF6E9'; ctx.beginPath(); ctx.arc(128, 128, 120, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 10; ctx.strokeStyle = '#0B0C10'; ctx.stroke();
+    // paw print: one big pad + four toes
+    ctx.fillStyle = '#FF5E13';
+    ctx.beginPath(); ctx.ellipse(128, 155, 46, 38, 0, 0, Math.PI * 2); ctx.fill();
+    const toe = (tx, ty, rx, ry, rot) => { ctx.beginPath(); ctx.ellipse(tx, ty, rx, ry, rot, 0, Math.PI * 2); ctx.fill(); };
+    toe(70, 95, 22, 28, -0.35); toe(112, 68, 24, 30, -0.08);
+    toe(154, 68, 24, 30, 0.08); toe(196, 95, 22, 28, 0.35);
+    ctx.fillStyle = '#0B0C10'; ctx.font = '900 26px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('ADOPT ME', 128, 225);
+    return new THREE.CanvasTexture(c);
+  }
+  const adoptStickerTex = createAdoptStickerTexture();
+  const adoptSticker = new THREE.Mesh(
+    new THREE.CircleGeometry(0.85, 32),
+    new THREE.MeshStandardMaterial({ map: adoptStickerTex, roughness: 0.6, metalness: 0.0 })
+  );
+  adoptSticker.position.set(0, 1.85, ADOPT_BOX_HALF + 0.02);
+  addOutline(adoptSticker, 0.03);
+  adoptGroup.add(adoptSticker);
+
+  // ---- Hinged flaps: front/back/left/right, closed flat by default, swing open
+  // outward when a purchase is made (driven by adoptLidOpenAmount, see animate()).
+  const ADOPT_FLAP_LEN = 1.72, ADOPT_FLAP_WID = 1.5, ADOPT_FLAP_MAX_ANGLE = 2.05;
+  const flapGeo = roundedBoxGeometry(ADOPT_FLAP_WID, 0.06, ADOPT_FLAP_LEN, 0.05);
+  function makeAdoptFlap(hingeX, hingeZ, meshOffsetX, meshOffsetZ, axis, sign, rotateMesh) {
+    const pivot = new THREE.Group();
+    pivot.position.set(hingeX, ADOPT_BOX_TOP_Y, hingeZ);
+    adoptGroup.add(pivot);
+    const mesh = new THREE.Mesh(flapGeo, bodyMat(CARDBOARD_COLOR));
+    if (rotateMesh) mesh.rotation.y = Math.PI / 2; // swap the flap's long axis onto X for the left/right flaps
+    mesh.position.set(meshOffsetX, 0, meshOffsetZ);
+    mesh.castShadow = true; addOutline(mesh, 0.04);
+    pivot.add(mesh);
+    return { pivot, axis, sign };
+  }
+  const adoptFlaps = [
+    makeAdoptFlap(0, ADOPT_BOX_HALF, 0, -ADOPT_FLAP_LEN / 2, 'x', -1, false),  // front flap, hinges toward box center
+    makeAdoptFlap(0, -ADOPT_BOX_HALF, 0, ADOPT_FLAP_LEN / 2, 'x', 1, false),   // back flap
+    makeAdoptFlap(-ADOPT_BOX_HALF, 0, ADOPT_FLAP_LEN / 2, 0, 'z', -1, true),   // left flap
+    makeAdoptFlap(ADOPT_BOX_HALF, 0, -ADOPT_FLAP_LEN / 2, 0, 'z', 1, true),    // right flap
+  ];
+  let adoptLidOpenAmount = 0;
+  function applyAdoptLidOpenAmount(amount) {
+    adoptLidOpenAmount = amount;
+    adoptFlaps.forEach(f => {
+      const angle = ADOPT_FLAP_MAX_ANGLE * amount * f.sign;
+      if (f.axis === 'x') f.pivot.rotation.x = angle; else f.pivot.rotation.z = angle;
+    });
+  }
+
+  // Paw-print beacon on top, matching the style of the other three dispensers
+  const adoptBeacon = new THREE.Group();
+  adoptBeacon.position.set(0, 9.5, 0);
+  adoptBeacon.scale.set(1.5, 1.5, 1.5);
+  adoptGroup.add(adoptBeacon);
+  const pawShape = new THREE.Shape();
+  pawShape.absellipse(0, -0.35, 0.42, 0.34, 0, Math.PI * 2, false, 0);
+  const pawToeShape1 = new THREE.Shape(); pawToeShape1.absellipse(-0.42, 0.28, 0.2, 0.25, 0, Math.PI * 2, false, 0);
+  const pawGeo = new THREE.ExtrudeGeometry(pawShape, symbolExtrudeSettings);
+  pawGeo.translate(0, 0, -0.11);
+  const pawMat = new THREE.MeshPhysicalMaterial({ color: 0xFF4D8D, emissive: 0x99164F, emissiveIntensity: 0.7, transparent: true, opacity: 0.85 });
+  const pawMesh = new THREE.Mesh(pawGeo, pawMat);
+  addOutline(pawMesh, 0.04); adoptBeacon.add(pawMesh);
+  [[-0.42, 0.32], [-0.15, 0.46], [0.15, 0.46], [0.42, 0.32]].forEach(([tx, ty]) => {
+    const toeShape = new THREE.Shape(); toeShape.absellipse(tx, ty, 0.16, 0.2, 0, Math.PI * 2, false, 0);
+    const toeGeo = new THREE.ExtrudeGeometry(toeShape, symbolExtrudeSettings);
+    toeGeo.translate(0, 0, -0.11);
+    const toeMesh = new THREE.Mesh(toeGeo, pawMat);
+    addOutline(toeMesh, 0.03); adoptBeacon.add(toeMesh);
+  });
+  const adoptRing = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.05, 12, 32), pawMat);
+  adoptRing.rotation.x = Math.PI / 2; adoptRing.position.y = -1.1; addOutline(adoptRing, 0.03); adoptBeacon.add(adoptRing);
+
+  // ---- Sparkle burst effect (spawned when a purchase opens the box) ----
+  const adoptSparkles = [];
+  function spawnAdoptSparkles(originWorld, count = 32) {
+    for (let i = 0; i < count; i++) {
+      const tint = new THREE.Color().setHSL(Math.random(), 0.75, 0.72);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkleTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, color: tint }));
+      sprite.position.copy(originWorld);
+      const scale = 0.35 + Math.random() * 0.35;
+      sprite.scale.set(scale, scale, 1);
+      scene.add(sprite);
+      adoptSparkles.push({
+        sprite, life: 1.0, decay: 0.012 + Math.random() * 0.014,
+        vx: (Math.random() - 0.5) * 0.09, vy: 0.08 + Math.random() * 0.09, vz: (Math.random() - 0.5) * 0.09
+      });
+    }
+  }
+
+  // ---- Pet reveal + walk-to-AURA animation state machine ----
+  // (petAdoptionAnim itself is declared earlier, alongside the Pet Menu code,
+  // so applyPetVisibility can reference it safely.)
+  const ADOPT_ANIM_OPEN_DUR = 500, ADOPT_ANIM_HOLD_DUR = 1300, ADOPT_ANIM_CLOSE_DUR = 500;
+  const ADOPT_ANIM_REVEAL_START = 250, ADOPT_ANIM_REVEAL_DUR = 500;
+  const ADOPT_ANIM_WALK_START = 800, ADOPT_ANIM_WALK_DUR = 1500;
+  const ADOPT_ANIM_TOTAL = ADOPT_ANIM_WALK_START + ADOPT_ANIM_WALK_DUR + 200;
+
+  function triggerPetAdoption() {
+    if (petAdoptionAnim) return; // a purchase is already mid-animation
+    const unowned = ALL_PET_IDS.filter(id => !petOwned[id]);
+    if (unowned.length === 0) {
+      logTransaction('ALL PETS ALREADY ADOPTED!', 'credit');
+      return;
+    }
+    if (bankBalance < 5) {
+      logTransaction('ERR: INSUFFICIENT FUNDS', 'debit');
+      const btn = document.getElementById('btnAdoptPet');
+      btn.style.background = '#FF5A5F'; btn.style.color = '#fff';
+      setTimeout(() => { btn.style.background = ''; btn.style.color = ''; }, 600);
+      return;
+    }
+    bankBalance -= 5; updateBankUI();
+    logTransaction('PET ADOPTION: -$5.00', 'debit');
+
+    const id = unowned[Math.floor(Math.random() * unowned.length)];
+    const pet = petTypes[id];
+    const spawnWorld = new THREE.Vector3(ADOPT_X, -4.65 + ADOPT_BOX_TOP_Y + 0.25, ADOPT_Z);
+
+    // Remember this pet's normal resting ground height (set once at creation
+    // time and never touched by its own update function) so the walk-in
+    // animation can ease back down to the correct height for its species.
+    const restY = pet.group.position.y;
+
+    pet.group.visible = true;
+    pet.group.scale.set(0.001, 0.001, 0.001);
+    pet.group.position.copy(spawnWorld);
+
+    petAdoptionAnim = { id, startTime: performance.now(), spawnWorld, restY };
+
+    spawnAdoptSparkles(new THREE.Vector3(ADOPT_X, -4.65 + ADOPT_BOX_TOP_Y + 0.4, ADOPT_Z));
+  }
+  document.getElementById('btnAdoptPet').addEventListener('click', triggerPetAdoption);
 
   let isQuizActive = false, currentQIndex = 0, quizScore = 0;
   let activeQuizQuestions = [];
@@ -3234,9 +3747,19 @@
     document.getElementById('quizScoreText').textContent = `Score: ${quizScore}/${currentQIndex}`;
     
     const grid = document.getElementById('quizOptionsGrid'); grid.innerHTML = '';
-    qData.o.forEach((optText, idx) => {
-      const btn = document.createElement('button'); btn.textContent = optText;
-      btn.addEventListener('click', () => handleAnswer(idx, btn, qData.a));
+
+    // Shuffle the on-screen order of the options (Fisher-Yates) so the correct
+    // answer's position varies each time - qData.o/qData.a themselves are left
+    // untouched, we just decide a random display order for this render.
+    const order = qData.o.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    order.forEach(origIdx => {
+      const btn = document.createElement('button'); btn.textContent = qData.o[origIdx];
+      btn.dataset.origIdx = origIdx;
+      btn.addEventListener('click', () => handleAnswer(origIdx, btn, qData.a));
       grid.appendChild(btn);
     });
   }
@@ -3253,7 +3776,10 @@
       logTransaction('QUIZ REWARD: +$1.00', 'credit');
     } else {
       buttonEl.classList.add('wrong');
-      allBtns[correctIndex].classList.add('correct');
+      // Options are shuffled on-screen, so find the correct button by its
+      // original option index rather than assuming a fixed grid position.
+      const correctBtn = Array.from(allBtns).find(btn => parseInt(btn.dataset.origIdx, 10) === correctIndex);
+      if (correctBtn) correctBtn.classList.add('correct');
     }
     document.getElementById('quizScoreText').textContent = `Score: ${quizScore}/${currentQIndex + 1}`;
     setTimeout(() => { currentQIndex++; renderQuestion(); }, 1200);
@@ -3302,6 +3828,8 @@
     snackBalanceEl.textContent = formatted;
     natureBalanceEl.textContent = formatted;
     buildBalanceEl.textContent = formatted;
+    const adoptionBalanceText = document.getElementById('adoptionBalanceText');
+    if (adoptionBalanceText) adoptionBalanceText.textContent = formatted;
   }
 
   document.getElementById('btnBalance').addEventListener('click', () => {
@@ -4162,7 +4690,8 @@
       { name: "BANK", x: -9, z: -4, color: "#FFB800", size: 5 },
       { name: "SNACKS", x: -63, z: -2.5, color: "#FF007F", size: 6 },
       { name: "NATURE", x: 63, z: -2.5, color: "#00C853", size: 6 },
-      { name: "BUILD", x: 0, z: -56.25, color: "#1E88E5", size: 6 }
+      { name: "BUILD", x: 0, z: -56.25, color: "#1E88E5", size: 6 },
+      { name: "PET ADOPT", x: 9, z: 50.25, color: "#FF4D8D", size: 6 }
     ];
 
     landmarks.forEach(lm => {
@@ -4273,6 +4802,7 @@
       
       matOrange.color.setHex(cMain); matOrangeDk.color.setHex(cDk);
       currentTheme = theme;
+      sparkleGroup.visible = (theme === 'silver' || theme === 'gold' || theme === 'prismatic' || theme === 'blackChrome');
     });
   });
 
@@ -4281,6 +4811,10 @@
   const snackPanel = document.getElementById('snackPanel');
   const naturePanel = document.getElementById('naturePanel');
   const buildPanel = document.getElementById('buildPanel');
+  const adoptionPanel = document.getElementById('adoptionPanel');
+  const adoptionBalanceEl = document.getElementById('adoptionBalanceText');
+  const adoptionCountEl = document.getElementById('adoptionCountText');
+  const adoptionStatusEl = document.getElementById('adoptionStatusText');
 
   // ---------- SAVE / LOAD / RESET SYSTEM ----------
   // Persists to localStorage in this browser, so returning to this same file/page
@@ -4405,6 +4939,17 @@
     Object.keys(inventory).forEach(k => delete inventory[k]);
     updateBankUI();
     updateInventoryUI();
+
+    // Send every pet back to "unadopted" too, so a full reset really does put
+    // AURA back to having zero pets - matching a fresh install.
+    petAdoptionAnim = null;
+    ALL_PET_IDS.forEach(id => { petOwned[id] = false; });
+    petActiveOrder = [];
+    petInactiveOrder = [];
+    applyPetVisibility();
+    renderPetLists();
+    savePetSettings();
+
     saveState();
     logTransaction('RESET: EVERYTHING CLEARED', 'debit');
     closeResetModal();
@@ -4429,7 +4974,8 @@
     try { data = JSON.parse(raw); } catch (err) { return; }
     if (typeof data.dayNightEnabled === 'boolean') settings.dayNightEnabled = data.dayNightEnabled;
     if (typeof data.dayNightSpeed === 'number' && data.dayNightSpeed > 0) settings.dayNightSpeed = data.dayNightSpeed;
-    ['petGapDog', 'petGapCat', 'petGapBird', 'petGapAlpaca', 'petGapBunny', 'petGapFrog', 'petGapMonkey', 'petGapPanda', 'petGapOwl', 'petGapDragon'].forEach(key => {
+    if (typeof data.fogFar === 'number' && data.fogFar > 0) settings.fogFar = data.fogFar;
+    ['petGapDog', 'petGapCat', 'petGapBird', 'petGapAlpaca', 'petGapBunny', 'petGapFrog', 'petGapMonkey', 'petGapPanda', 'petGapOwl', 'petGapDragon', 'petGapLamb'].forEach(key => {
       if (typeof data[key] === 'number' && data[key] > 0) settings[key] = data[key];
     });
   }
@@ -4445,6 +4991,9 @@
   PANDA_FOLLOW_DIST = settings.petGapPanda;
   OWL_FOLLOW_DIST = settings.petGapOwl;
   DRAGON_FOLLOW_DIST = settings.petGapDragon;
+  LAMB_FOLLOW_DIST = settings.petGapLamb;
+  scene.fog.far = settings.fogFar;
+  scene.fog.near = Math.max(5, settings.fogFar - 85);
 
   const settingsModalEl = document.getElementById('settingsModal');
   document.getElementById('btnSettings').addEventListener('click', () => { settingsModalEl.classList.add('show'); });
@@ -4470,6 +5019,19 @@
     saveSettings();
   });
 
+  const fogFarSliderEl = document.getElementById('fogFarSlider');
+  const fogFarValueEl = document.getElementById('fogFarValue');
+  fogFarSliderEl.value = settings.fogFar;
+  fogFarValueEl.textContent = Math.round(settings.fogFar);
+  fogFarSliderEl.addEventListener('input', () => {
+    const v = parseFloat(fogFarSliderEl.value);
+    settings.fogFar = v;
+    fogFarValueEl.textContent = Math.round(v);
+    scene.fog.far = v;
+    scene.fog.near = Math.max(5, v - 85);
+    saveSettings();
+  });
+
   // ---- Pet Gaps: one slider per pet, each wired to its own settings key + live follow-distance variable ----
   const PET_GAP_SLIDERS = [
     { key: 'petGapDog',    slider: 'petGapDogSlider',    value: 'petGapDogValue',    apply: v => { DOG_FOLLOW_DIST = v; } },
@@ -4482,6 +5044,7 @@
     { key: 'petGapPanda',  slider: 'petGapPandaSlider',  value: 'petGapPandaValue',  apply: v => { PANDA_FOLLOW_DIST = v; } },
     { key: 'petGapOwl',    slider: 'petGapOwlSlider',    value: 'petGapOwlValue',    apply: v => { OWL_FOLLOW_DIST = v; } },
     { key: 'petGapDragon', slider: 'petGapDragonSlider', value: 'petGapDragonValue', apply: v => { DRAGON_FOLLOW_DIST = v; } },
+    { key: 'petGapLamb',   slider: 'petGapLambSlider',   value: 'petGapLambValue',   apply: v => { LAMB_FOLLOW_DIST = v; } },
   ];
   PET_GAP_SLIDERS.forEach(({ key, slider, value, apply }) => {
     const sliderEl = document.getElementById(slider);
@@ -4507,6 +5070,11 @@
     waterShaderMat.uniforms.uTime.value = time * 0.001;
 
     updateDayNightCycle(dt);
+
+    // --- NIGHT SKY: stars fade in/out with nightFactor ---
+    const skyVisible = nightFactor > 0.01;
+    stars.visible = skyVisible;
+    if (skyVisible) starMat.opacity = nightFactor * 0.9;
 
     updateChestCanvas(time);
 
@@ -4547,11 +5115,71 @@
     });
 
     // --- BEACON ROTATION ---
+    jupiter.rotation.y += dt * 0.025;
     beaconSphere.rotation.y = time * 0.002;
     bankBeacon.rotation.y = time * 0.002;
     snackBeacon.rotation.y = time * 0.0025;
     natureBeacon.rotation.y = time * 0.0025;
     buildBeacon.rotation.y = time * 0.0025;
+    adoptBeacon.rotation.y = time * 0.0025;
+
+    // --- PET ADOPTION BOX: sparkle burst lifetime ---
+    for (let i = adoptSparkles.length - 1; i >= 0; i--) {
+      const p = adoptSparkles[i];
+      p.life -= p.decay;
+      p.sprite.position.x += p.vx; p.sprite.position.y += p.vy; p.sprite.position.z += p.vz;
+      p.vy -= 0.0025; // gentle gravity so the burst arcs back down
+      p.sprite.material.opacity = Math.max(0, p.life);
+      if (p.life <= 0) { scene.remove(p.sprite); adoptSparkles.splice(i, 1); }
+    }
+
+    // --- PET ADOPTION BOX: lid open/close + pet reveal + walk-to-AURA handoff ---
+    if (petAdoptionAnim) {
+      const elapsed = performance.now() - petAdoptionAnim.startTime;
+
+      // Lid: opens, holds, then closes again over the course of the sequence.
+      let lidAmount;
+      if (elapsed < ADOPT_ANIM_OPEN_DUR) lidAmount = elapsed / ADOPT_ANIM_OPEN_DUR;
+      else if (elapsed < ADOPT_ANIM_OPEN_DUR + ADOPT_ANIM_HOLD_DUR) lidAmount = 1;
+      else if (elapsed < ADOPT_ANIM_OPEN_DUR + ADOPT_ANIM_HOLD_DUR + ADOPT_ANIM_CLOSE_DUR) {
+        lidAmount = 1 - (elapsed - ADOPT_ANIM_OPEN_DUR - ADOPT_ANIM_HOLD_DUR) / ADOPT_ANIM_CLOSE_DUR;
+      } else lidAmount = 0;
+      applyAdoptLidOpenAmount(Math.max(0, Math.min(1, lidAmount)));
+
+      const pet = petTypes[petAdoptionAnim.id];
+
+      // Reveal: pop up out of the box with a little bounce.
+      const revealProgress = Math.max(0, Math.min(1, (elapsed - ADOPT_ANIM_REVEAL_START) / ADOPT_ANIM_REVEAL_DUR));
+      const revealEase = 1 - Math.pow(1 - revealProgress, 3);
+      pet.group.scale.setScalar(Math.max(0.001, revealEase));
+
+      if (elapsed < ADOPT_ANIM_WALK_START) {
+        // Still rising out of the box - a small bob for extra bounce.
+        pet.group.position.copy(petAdoptionAnim.spawnWorld);
+        pet.group.position.y += Math.sin(revealProgress * Math.PI) * 0.35;
+      } else {
+        // Walking over to join AURA - glide from the box to just behind wherever
+        // AURA currently is, easing down to this species' normal ground height.
+        const walkProgress = Math.max(0, Math.min(1, (elapsed - ADOPT_ANIM_WALK_START) / ADOPT_ANIM_WALK_DUR));
+        const walkEase = walkProgress * walkProgress * (3 - 2 * walkProgress); // smoothstep
+        const backX = -Math.sin(robot.rotation.y) * 3.0, backZ = -Math.cos(robot.rotation.y) * 3.0;
+        const targetX = robot.position.x + backX, targetZ = robot.position.z + backZ;
+        pet.group.position.x = THREE.MathUtils.lerp(petAdoptionAnim.spawnWorld.x, targetX, walkEase);
+        pet.group.position.z = THREE.MathUtils.lerp(petAdoptionAnim.spawnWorld.z, targetZ, walkEase);
+        pet.group.position.y = THREE.MathUtils.lerp(petAdoptionAnim.spawnWorld.y, petAdoptionAnim.restY, walkEase)
+          + Math.sin(walkProgress * Math.PI) * 0.5; // little hop while trotting over
+        pet.group.rotation.y = Math.atan2(targetX - petAdoptionAnim.spawnWorld.x, targetZ - petAdoptionAnim.spawnWorld.z);
+      }
+
+      if (elapsed >= ADOPT_ANIM_TOTAL) {
+        const finishedId = petAdoptionAnim.id;
+        pet.group.scale.set(1, 1, 1);
+        pet.group.position.y = petAdoptionAnim.restY;
+        petAdoptionAnim = null;
+        acquirePet(finishedId);
+        logTransaction(`ADOPTED: ${petTypes[finishedId].icon} ${petNames[finishedId]}!`, 'credit');
+      }
+    }
 
     // --- MOVEMENT & ROBOT ANIMATION ---
     if (!placementMode.active && !buildMode.active) {
@@ -4648,6 +5276,26 @@
     const distToBuild = Math.hypot(robot.position.x - 0, robot.position.z - (-56.25));
     if (distToBuild < 16) buildPanel.classList.remove('hidden');
     else buildPanel.classList.add('hidden');
+
+    const distToAdopt = Math.hypot(robot.position.x - ADOPT_X, robot.position.z - ADOPT_Z);
+    if (distToAdopt < 16) {
+      adoptionPanel.classList.remove('hidden');
+      const ownedCount = ALL_PET_IDS.filter(id => petOwned[id]).length;
+      adoptionCountEl.textContent = `${ownedCount} / ${ALL_PET_IDS.length}`;
+      const btnAdopt = document.getElementById('btnAdoptPet');
+      if (ownedCount >= ALL_PET_IDS.length) {
+        adoptionStatusEl.textContent = 'ALL PETS ADOPTED!'; adoptionStatusEl.style.color = '#00C853';
+        btnAdopt.disabled = true;
+      } else if (petAdoptionAnim) {
+        adoptionStatusEl.textContent = 'OPENING BOX...'; adoptionStatusEl.style.color = '#FF007F';
+        btnAdopt.disabled = true;
+      } else {
+        adoptionStatusEl.textContent = 'TAP TO ADOPT'; adoptionStatusEl.style.color = '#FF007F';
+        btnAdopt.disabled = false;
+      }
+    } else {
+      adoptionPanel.classList.add('hidden');
+    }
 
     // --- BUILD MODE GHOST PREVIEW ---
     if (buildMode.active) updateBuildPreview();

@@ -68,6 +68,22 @@
   <div class="pet-hint">Drag to reorder or move lists · Double-click a name to rename · Tap a dot to recolor</div>
 </div>
 
+<!-- PROXIMITY-GATED PET ADOPTION BOX UI -->
+<div id="adoptionPanel" class="hud-panel hidden">
+  <div class="panel-header">
+    <span>📦 Pet Adoption Box</span>
+    <span class="status-badge pink">ONLINE</span>
+  </div>
+
+  <div class="stat-row"><span>EFTPOS Balance:</span> <strong class="money" id="adoptionBalanceText">$0.00</strong></div>
+  <div class="stat-row"><span>Pets Adopted:</span> <strong id="adoptionCountText">0 / 10</strong></div>
+  <div class="stat-row"><span>Status:</span> <strong id="adoptionStatusText" style="color:#FF007F;">TAP TO ADOPT</strong></div>
+
+  <div class="panel-actions">
+    <button id="btnAdoptPet" class="btn-wide btn-pink">🎁 Adopt Random Pet ($5)</button>
+  </div>
+</div>
+
 <!-- PROXIMITY-GATED KIOSK UI -->
 <div id="kioskPanel" class="hud-panel hidden">
   <div class="panel-header">
@@ -222,6 +238,17 @@
         </div>
       </div>
 
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <span>🌫️ Fog Distance</span>
+          <small>Drag left for thick, close-in fog · right to see much further</small>
+        </div>
+        <div class="settings-slider-wrap">
+          <input type="range" id="fogFarSlider" min="60" max="400" step="5" value="195">
+          <span id="fogFarValue">195</span>
+        </div>
+      </div>
+
       <div class="settings-section-title">🐾 Pet Gaps</div>
       <div class="settings-row-label" style="margin-top:-10px;">
         <small>How far behind their leader each pet trails while following</small>
@@ -304,6 +331,14 @@
         <div class="settings-slider-wrap">
           <input type="range" id="petGapDragonSlider" min="0.5" max="15" step="0.1" value="4.6">
           <span id="petGapDragonValue">4.6</span>
+        </div>
+      </div>
+
+      <div class="settings-row pet-gap-row">
+        <div class="settings-row-label"><span>🐑 Lamb</span></div>
+        <div class="settings-slider-wrap">
+          <input type="range" id="petGapLambSlider" min="0.5" max="15" step="0.1" value="3.6">
+          <span id="petGapLambValue">3.6</span>
         </div>
       </div>
 
