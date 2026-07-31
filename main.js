@@ -4292,7 +4292,7 @@
       animateScaleUp(mesh);
     }
 
-    buildGrid[key].push({ type, mesh });
+    buildGrid[key].push({ type, mesh, level });
     buildBlockMeshes.push(mesh);
     return mesh;
   }
@@ -4374,11 +4374,16 @@
       // falls back to the same "stack on top" behavior as a top-face hit.
       return { gx: cell.gx, gz: cell.gz, level: cell.level + 1, kind: 'top', faceCell: cell };
     }
-    // A side face - place in the neighboring column, at whatever height that
-    // column has already reached (keeps every column's stack gap-free).
+    // A side face - place beside it in the neighboring column, at the SAME height
+    // as the block you clicked (this is what makes roofs/overhangs possible - the
+    // new block can stick out into open air rather than always dropping to the
+    // ground). If that neighboring cell somehow already has a block at that exact
+    // level, fall back to stacking on top of whatever's already in that column.
     const adjGX = cell.gx + nx, adjGZ = cell.gz + nz;
     const adjKey = `${adjGX},${adjGZ}`;
-    const adjLevel = buildGrid[adjKey] ? buildGrid[adjKey].length : 0;
+    const adjStack = buildGrid[adjKey] || [];
+    const spotTaken = adjStack.some(e => e.level === cell.level);
+    const adjLevel = spotTaken ? adjStack.length : cell.level;
     return { gx: adjGX, gz: adjGZ, level: adjLevel, kind: 'side', faceCell: cell, faceNormal: { x: nx, z: nz } };
   }
 
@@ -4911,7 +4916,7 @@
     const out = [];
     Object.keys(buildGrid).forEach(key => {
       const [gx, gz] = key.split(',').map(Number);
-      buildGrid[key].forEach((entry, level) => { out.push({ gx, gz, level, type: entry.type }); });
+      buildGrid[key].forEach(entry => { out.push({ gx, gz, level: entry.level, type: entry.type }); });
     });
     return out;
   }
