@@ -4294,7 +4294,91 @@
 
     buildGrid[key].push({ type, mesh, level });
     buildBlockMeshes.push(mesh);
+    rebuildBuildCollisionBoxes();
     return mesh;
+  }
+
+  // ---------- BUILD COLLISION (so AURA can't walk through placed blocks) ----------
+  // Rather than one collision box per block, adjacent blocks on the same level are
+  // merged into as few rectangular boxes as possible (classic "greedy meshing"):
+  // a big flat wall built block-by-block collapses down to a single box instead of
+  // dozens of tiny ones. Recomputed any time blocks are added or cleared.
+  let buildCollisionBoxes = []; // world-space { minX, maxX, minY, maxY, minZ, maxZ }
+  function rebuildBuildCollisionBoxes() {
+    buildCollisionBoxes = [];
+
+    // Group every occupied cell by level: level -> Set of "gx,gz" keys
+    const levelCells = {};
+    Object.keys(buildGrid).forEach(key => {
+      buildGrid[key].forEach(entry => {
+        if (!levelCells[entry.level]) levelCells[entry.level] = new Set();
+        levelCells[entry.level].add(key);
+      });
+    });
+
+    Object.keys(levelCells).forEach(levelStr => {
+      const level = Number(levelStr);
+      const remaining = new Set(levelCells[levelStr]);
+
+      while (remaining.size > 0) {
+        const [gx0, gz0] = remaining.values().next().value.split(',').map(Number);
+
+        // Grow a strip to the right as far as consecutive occupied cells allow.
+        let gxMax = gx0;
+        while (remaining.has(`${gxMax + 1},${gz0}`)) gxMax++;
+
+        // Grow that whole strip downward one row at a time, but only as long as
+        // EVERY cell in the next row (across the strip's full width) is also free.
+        let gzMax = gz0;
+        for (; ;) {
+          const nextGz = gzMax + 1;
+          let rowComplete = true;
+          for (let gx = gx0; gx <= gxMax; gx++) {
+            if (!remaining.has(`${gx},${nextGz}`)) { rowComplete = false; break; }
+          }
+          if (!rowComplete) break;
+          gzMax = nextGz;
+        }
+
+        // Claim every cell in the merged rectangle so it isn't reused.
+        for (let gx = gx0; gx <= gxMax; gx++) {
+          for (let gz = gz0; gz <= gzMax; gz++) remaining.delete(`${gx},${gz}`);
+        }
+
+        buildCollisionBoxes.push({
+          minX: (gx0 - 0.5) * GRID_SIZE, maxX: (gxMax + 0.5) * GRID_SIZE,
+          minZ: (gz0 - 0.5) * GRID_SIZE, maxZ: (gzMax + 0.5) * GRID_SIZE,
+          minY: -4.65 + GRID_SIZE * level, maxY: -4.65 + GRID_SIZE * (level + 1),
+        });
+      }
+    });
+  }
+
+  // AURA is treated as a simple standing cylinder for collision purposes - only
+  // blocks whose vertical span actually overlaps AURA's body height can push back
+  // on it, so a roof/overhang built high enough overhead can always be walked
+  // under freely, exactly like walking under a real balcony.
+  const ROBOT_COLLIDE_RADIUS = 1.7;
+  const ROBOT_COLLIDE_Y_MIN = -4.6, ROBOT_COLLIDE_Y_MAX = 4.5;
+  function resolveBuildCollisions(prevX, prevZ) {
+    for (const box of buildCollisionBoxes) {
+      if (box.maxY <= ROBOT_COLLIDE_Y_MIN || box.minY >= ROBOT_COLLIDE_Y_MAX) continue; // no vertical overlap - walk under/over freely
+      const closestX = Math.max(box.minX, Math.min(robot.position.x, box.maxX));
+      const closestZ = Math.max(box.minZ, Math.min(robot.position.z, box.maxZ));
+      const dx = robot.position.x - closestX, dz = robot.position.z - closestZ;
+      const distSq = dx * dx + dz * dz;
+      if (distSq >= ROBOT_COLLIDE_RADIUS * ROBOT_COLLIDE_RADIUS) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist > 0.0001) {
+        const push = ROBOT_COLLIDE_RADIUS - dist;
+        robot.position.x += (dx / dist) * push;
+        robot.position.z += (dz / dist) * push;
+      } else {
+        // Dead-center inside the box (rare) - simplest safe fallback is to undo
+        // this frame's movement entirely rather than pick an arbitrary direction.
+        robot.position.x = prevX; robot.position.z = prevZ;
+      }
+    }
   }
 
   function firstAvailableBlockType() {
@@ -4374,17 +4458,23 @@
       // falls back to the same "stack on top" behavior as a top-face hit.
       return { gx: cell.gx, gz: cell.gz, level: cell.level + 1, kind: 'top', faceCell: cell };
     }
-    // A side face - place beside it in the neighboring column, at the SAME height
-    // as the block you clicked (this is what makes roofs/overhangs possible - the
-    // new block can stick out into open air rather than always dropping to the
-    // ground). If that neighboring cell somehow already has a block at that exact
-    // level, fall back to stacking on top of whatever's already in that column.
+    // A side face - place beside it in the neighboring column, level with the TOP
+    // of the column you clicked (not necessarily the exact level whose face the
+    // ray happened to hit - blocks stacked in the same column share one flat
+    // vertical side, so a click anywhere along a tower's side reads as "build
+    // off the top of this tower", which is what you want for roofs/overhangs).
+    // Falls back to stacking on the neighbor's own top if that exact spot is
+    // somehow already occupied.
+    const colKey = `${cell.gx},${cell.gz}`;
+    const colStack = buildGrid[colKey] || [];
+    const colTopLevel = colStack.length ? Math.max(...colStack.map(e => e.level)) : cell.level;
+
     const adjGX = cell.gx + nx, adjGZ = cell.gz + nz;
     const adjKey = `${adjGX},${adjGZ}`;
     const adjStack = buildGrid[adjKey] || [];
-    const spotTaken = adjStack.some(e => e.level === cell.level);
-    const adjLevel = spotTaken ? adjStack.length : cell.level;
-    return { gx: adjGX, gz: adjGZ, level: adjLevel, kind: 'side', faceCell: cell, faceNormal: { x: nx, z: nz } };
+    const spotTaken = adjStack.some(e => e.level === colTopLevel);
+    const adjLevel = spotTaken ? adjStack.length : colTopLevel;
+    return { gx: adjGX, gz: adjGZ, level: adjLevel, kind: 'side', faceCell: { gx: cell.gx, gz: cell.gz, level: colTopLevel }, faceNormal: { x: nx, z: nz } };
   }
 
   function updateBuildPreview() {
@@ -4432,6 +4522,7 @@
     });
     buildBlockMeshes.length = 0;
     Object.keys(buildGrid).forEach(k => delete buildGrid[k]);
+    buildCollisionBoxes = [];
   }
 
   function clearAllNature() {
@@ -5269,8 +5360,10 @@
       else turnSpeed *= friction;
 
       robot.rotation.y += turnSpeed;
+      const prevX = robot.position.x, prevZ = robot.position.z;
       robot.position.x += Math.sin(robot.rotation.y) * moveSpeed;
       robot.position.z += Math.cos(robot.rotation.y) * moveSpeed;
+      resolveBuildCollisions(prevX, prevZ);
 
       robot.position.x = Math.max(-BOUNDARY_LIMIT, Math.min(BOUNDARY_LIMIT, robot.position.x));
       robot.position.z = Math.max(-BOUNDARY_LIMIT, Math.min(BOUNDARY_LIMIT, robot.position.z));
