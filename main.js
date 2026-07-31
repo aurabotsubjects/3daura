@@ -5482,12 +5482,13 @@
         scene.remove(snack.mesh);
         activeSnacks.splice(i, 1);
         
-        // 1 Purchase gives 3 items for Grass, Flowers, and Water; 2 items for Build Materials!
+        // 1 Purchase gives 5 items for ground textures (Grass/Flower/Water) and Build
+        // Materials, 2 items for Trees (they take up more space!), and 1 for snacks.
         let countToAdd = 1;
-        if (snack.name.includes("Grass") || snack.name.includes("Flower") || snack.name.includes("Water")) {
-          countToAdd = 3;
-        } else if (snack.name.includes("Block")) {
+        if (snack.name.includes("Tree")) {
           countToAdd = 2;
+        } else if (snack.name.includes("Grass") || snack.name.includes("Flower") || snack.name.includes("Water") || snack.name.includes("Block")) {
+          countToAdd = 5;
         }
 
         if (!inventory[snack.name]) inventory[snack.name] = 0;
