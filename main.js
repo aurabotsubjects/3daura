@@ -3892,6 +3892,40 @@
   buildPreviewMesh.visible = false;
   scene.add(buildPreviewMesh);
 
+  // Face highlight - a flat glowing patch laid right on top of whichever face the mouse
+  // is currently over, so it's immediately obvious whether the next block will drop onto
+  // the ground, stack on top of the hovered block, or attach beside it.
+  const FACE_HIGHLIGHT_COLORS = { ground: 0x00C853, top: 0x2EE2FA, side: 0xFF9800 };
+  const faceHighlightMat = new THREE.MeshBasicMaterial({ color: 0x2EE2FA, transparent: true, opacity: 0.65, side: THREE.DoubleSide, depthWrite: false });
+  const faceHighlightMesh = new THREE.Mesh(new THREE.PlaneGeometry(GRID_SIZE * 0.92, GRID_SIZE * 0.92), faceHighlightMat);
+  faceHighlightMesh.visible = false;
+  faceHighlightMesh.renderOrder = 10;
+  scene.add(faceHighlightMesh);
+
+  // Positions/orients the face highlight flush against whatever the raycast just hit.
+  //  - 'ground': laid flat on the ground plane
+  //  - 'top':    laid flat on top of the hovered block
+  //  - 'side':   stood upright, flush against the hovered block's side, facing outward
+  function positionFaceHighlight(target) {
+    faceHighlightMat.color.setHex(FACE_HIGHLIGHT_COLORS[target.kind]);
+    const EPS = 0.04; // tiny offset off the surface so it doesn't z-fight with the block/ground
+    if (target.kind === 'side') {
+      const { faceCell, faceNormal } = target;
+      faceHighlightMesh.rotation.set(0, Math.atan2(faceNormal.x, faceNormal.z), 0);
+      const cx = faceCell.gx * GRID_SIZE + faceNormal.x * (GRID_SIZE / 2 + EPS);
+      const cz = faceCell.gz * GRID_SIZE + faceNormal.z * (GRID_SIZE / 2 + EPS);
+      const cy = -4.65 + GRID_SIZE * (faceCell.level + 0.5);
+      faceHighlightMesh.position.set(cx, cy, cz);
+    } else if (target.kind === 'top') {
+      faceHighlightMesh.rotation.set(-Math.PI / 2, 0, 0);
+      const topY = -4.65 + GRID_SIZE * (target.faceCell.level + 1) + EPS;
+      faceHighlightMesh.position.set(target.faceCell.gx * GRID_SIZE, topY, target.faceCell.gz * GRID_SIZE);
+    } else { // ground
+      faceHighlightMesh.rotation.set(-Math.PI / 2, 0, 0);
+      faceHighlightMesh.position.set(target.gx * GRID_SIZE, -4.65 + EPS, target.gz * GRID_SIZE);
+    }
+  }
+
   function enterPlacementMode(itemName) {
     placementMode.active = true;
     placementMode.item = itemName;
@@ -4280,6 +4314,7 @@
     buildMode.active = false;
     buildMode.hoverLevel = null;
     buildPreviewMesh.visible = false;
+    faceHighlightMesh.visible = false;
     const hint = document.getElementById('hint');
     hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory";
     hint.classList.remove('placement-active');
@@ -4300,28 +4335,56 @@
   }
 
   // Casts a ray from the current mouse position into the scene, against the ground and
-  // every placed block. Clicking directly on an existing cube stacks the new one on top
-  // of it (its raycast hit is naturally closer to the camera than the ground behind it).
+  // every placed block. Which face was hit decides what happens next:
+  //  - the ground              -> place at level 0 in that cell
+  //  - the TOP face of a block -> stack directly on top of it (same column, next level up)
+  //  - a SIDE face of a block  -> place beside it in the neighboring cell, at that
+  //                               neighbor's own current height (so a flush row/wall of
+  //                               blocks always stays perfectly stackable/saveable)
   function raycastBuildTarget() {
     buildRaycaster.setFromCamera(mouseNDC, camera);
     const hits = buildRaycaster.intersectObjects([ground, ...buildBlockMeshes], false);
     if (hits.length === 0) return null;
     const hit = hits[0];
     if (hit.object === ground) {
-      return { gx: Math.round(hit.point.x / GRID_SIZE), gz: Math.round(hit.point.z / GRID_SIZE), level: 0 };
+      return { gx: Math.round(hit.point.x / GRID_SIZE), gz: Math.round(hit.point.z / GRID_SIZE), level: 0, kind: 'ground' };
     }
+
     const cell = hit.object.userData.buildCell;
-    return { gx: cell.gx, gz: cell.gz, level: cell.level + 1 };
+    // Faces of an axis-aligned cube always have a normal pointing straight along
+    // one world axis - transform it out of local space, then round away any tiny
+    // floating-point noise so it's cleanly -1/0/1.
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    const nx = Math.round(n.x), ny = Math.round(n.y), nz = Math.round(n.z);
+
+    if (ny > 0) {
+      // Top face - stack straight up.
+      return { gx: cell.gx, gz: cell.gz, level: cell.level + 1, kind: 'top', faceCell: cell };
+    }
+    if (ny < 0) {
+      // Underside of a block - there's no support for placing below, so this
+      // falls back to the same "stack on top" behavior as a top-face hit.
+      return { gx: cell.gx, gz: cell.gz, level: cell.level + 1, kind: 'top', faceCell: cell };
+    }
+    // A side face - place in the neighboring column, at whatever height that
+    // column has already reached (keeps every column's stack gap-free).
+    const adjGX = cell.gx + nx, adjGZ = cell.gz + nz;
+    const adjKey = `${adjGX},${adjGZ}`;
+    const adjLevel = buildGrid[adjKey] ? buildGrid[adjKey].length : 0;
+    return { gx: adjGX, gz: adjGZ, level: adjLevel, kind: 'side', faceCell: cell, faceNormal: { x: nx, z: nz } };
   }
 
   function updateBuildPreview() {
     const target = raycastBuildTarget();
-    if (!target) { buildPreviewMesh.visible = false; buildMode.hoverLevel = null; return; }
+    if (!target) { buildPreviewMesh.visible = false; faceHighlightMesh.visible = false; buildMode.hoverLevel = null; return; }
     buildMode.hoverGX = target.gx; buildMode.hoverGZ = target.gz; buildMode.hoverLevel = target.level;
     buildPreviewMesh.visible = true;
     buildPreviewMesh.position.set(target.gx * GRID_SIZE, -4.65 + GRID_SIZE * (target.level + 0.5), target.gz * GRID_SIZE);
     const info = BLOCK_TYPES[buildMode.selectedType];
     buildPreviewMat.color.setHex(info ? info.color : 0x2EE2FA);
+
+    faceHighlightMesh.visible = true;
+    positionFaceHighlight(target);
   }
 
   function placeBuildBlockAtHover() {
