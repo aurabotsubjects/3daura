@@ -2961,7 +2961,15 @@
     // Only ever restore pets that were actually adopted - anything else stays
     // un-owned and invisible, even if it's referenced in old/corrupt data.
     let ownedSet = new Set();
-    if (validIds(data.owned)) ownedSet = new Set(data.owned);
+    if (validIds(data.owned)) {
+      ownedSet = new Set(data.owned);
+    } else if (validIds(data.active) && validIds(data.inactive) && !('owned' in data)) {
+      // Legacy save from before the ownership/adoption system existed - back then
+      // every pet in active/inactive was simply available by default, with no
+      // separate "owned" concept. Treat whatever it already lists as owned so
+      // upgrading to the newer code doesn't quietly wipe out an existing roster.
+      ownedSet = new Set([...data.active, ...data.inactive]);
+    }
 
     if (validIds(data.active) && validIds(data.inactive) &&
         data.active.length <= MAX_ACTIVE_PETS &&
