@@ -3954,7 +3954,7 @@
     placementMode.active = false;
     gridOverlayGroup.visible = false;
     const hint = document.getElementById('hint');
-    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory";
+    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
   }
 
@@ -4078,6 +4078,7 @@
     const newMesh = new THREE.Mesh(newGeo, waterShaderMat);
     newMesh.position.set(gx * GRID_SIZE, -4.50, gz * GRID_SIZE);
     newMesh.receiveShadow = true;
+    newMesh.userData.eraseInfo = { kind: 'water', key };
     scene.add(newMesh);
     tile.waterMesh = newMesh;
   }
@@ -4133,6 +4134,7 @@
         scene.add(grassGroup);
         tile.base = 'grass';
         tile.baseMesh = grassGroup;
+        grassGroup.userData.eraseInfo = { kind: 'grass', key };
         animateScaleUp(grassGroup);
       }
     } 
@@ -4200,6 +4202,7 @@
       
       flowerGroup.position.set(wx + dx, -4.65, wz + dz);
       flowerGroup.scale.set(0.01, 0.01, 0.01);
+      flowerGroup.userData.eraseInfo = { kind: 'flower', key, mesh: flowerGroup };
       scene.add(flowerGroup);
       
       tile.flowers.push({ mesh: flowerGroup, x: dx, z: dz, color: color });
@@ -4230,6 +4233,7 @@
 
         treeGroup.position.set(wx, -4.65, wz);
         treeGroup.scale.set(0.01, 0.01, 0.01);
+        treeGroup.userData.eraseInfo = { kind: 'tree', key };
         scene.add(treeGroup);
         tile.object = 'tree';
         tile.objMesh = treeGroup;
@@ -4285,6 +4289,7 @@
     mesh.castShadow = true; mesh.receiveShadow = true;
     addOutline(mesh, 0.04);
     mesh.userData.buildCell = { gx, gz, level };
+    mesh.userData.eraseInfo = { kind: 'block', gx, gz, level };
     scene.add(mesh);
 
     if (animateIn) {
@@ -4408,7 +4413,7 @@
     buildPreviewMesh.visible = false;
     faceHighlightMesh.visible = false;
     const hint = document.getElementById('hint');
-    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory";
+    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
   }
 
@@ -4535,6 +4540,150 @@
       delete worldGrid[key];
     });
   }
+
+  // ---------- EDIT MODE (press E): erase individual blocks/trees/ground tiles ----------
+  // Original scenery (kiosks, dispensers, the Pet Adoption Box, AURA, pets, etc.) is
+  // never part of these lists, so it's simply impossible to select/erase it.
+  const editMode = { active: false, eraseArmed: false };
+  const editRaycaster = new THREE.Raycaster();
+
+  function collectErasableObjects() {
+    const list = buildBlockMeshes.slice();
+    Object.keys(worldGrid).forEach(key => {
+      const tile = worldGrid[key];
+      if (tile.baseMesh) list.push(tile.baseMesh);
+      if (tile.objMesh) list.push(tile.objMesh);
+      if (tile.waterMesh && tile.waterMesh.isObject3D) list.push(tile.waterMesh);
+      if (tile.flowers) tile.flowers.forEach(fl => list.push(fl.mesh));
+    });
+    return list;
+  }
+
+  // Erasable meshes are tagged with userData.eraseInfo, but a raycast can return a
+  // child part (a single grass blade, a tree's trunk, etc.) rather than the tagged
+  // top-level group - climb up through parents until the tag is found.
+  function findEraseInfo(obj) {
+    let o = obj;
+    while (o) {
+      if (o.userData && o.userData.eraseInfo) return o.userData.eraseInfo;
+      o = o.parent;
+    }
+    return null;
+  }
+
+  function eraseObject(info) {
+    if (info.kind === 'block') {
+      const key = `${info.gx},${info.gz}`;
+      const stack = buildGrid[key];
+      if (!stack) return;
+      const idx = stack.findIndex(e => e.level === info.level);
+      if (idx === -1) return;
+      const entry = stack[idx];
+      scene.remove(entry.mesh);
+      if (entry.mesh.geometry) entry.mesh.geometry.dispose();
+      if (entry.mesh.material) entry.mesh.material.dispose();
+      stack.splice(idx, 1);
+      const meshIdx = buildBlockMeshes.indexOf(entry.mesh);
+      if (meshIdx !== -1) buildBlockMeshes.splice(meshIdx, 1);
+      if (stack.length === 0) delete buildGrid[key];
+      rebuildBuildCollisionBoxes();
+      logTransaction('ERASED: BLOCK', 'debit');
+      return;
+    }
+
+    const tile = worldGrid[info.key];
+    if (!tile) return;
+
+    if (info.kind === 'grass') {
+      if (tile.baseMesh) scene.remove(tile.baseMesh);
+      tile.base = null; tile.baseMesh = null;
+      logTransaction('ERASED: GRASS', 'debit');
+    } else if (info.kind === 'water') {
+      if (tile.waterMesh && tile.waterMesh.isObject3D) scene.remove(tile.waterMesh);
+      tile.base = null; tile.waterMesh = null;
+      // Neighboring ponds need their shared edges reflowed now that this tile is gone
+      const [gx, gz] = info.key.split(',').map(Number);
+      updateWaterMeshAt(gx + 1, gz); updateWaterMeshAt(gx - 1, gz);
+      updateWaterMeshAt(gx, gz + 1); updateWaterMeshAt(gx, gz - 1);
+      logTransaction('ERASED: WATER', 'debit');
+    } else if (info.kind === 'tree') {
+      if (tile.objMesh) scene.remove(tile.objMesh);
+      tile.object = null; tile.objMesh = null;
+      logTransaction('ERASED: TREE', 'debit');
+    } else if (info.kind === 'flower') {
+      scene.remove(info.mesh);
+      const fIdx = tile.flowers.findIndex(fl => fl.mesh === info.mesh);
+      if (fIdx !== -1) tile.flowers.splice(fIdx, 1);
+      if (tile.flowers.length === 0 && tile.object === 'flower_cluster') tile.object = null;
+      logTransaction('ERASED: FLOWER', 'debit');
+    }
+
+    if (!tile.base && !tile.object && (!tile.flowers || tile.flowers.length === 0)) {
+      delete worldGrid[info.key];
+    }
+    saveState();
+  }
+
+  function eraseObjectAtMouse() {
+    editRaycaster.setFromCamera(mouseNDC, camera);
+    const hits = editRaycaster.intersectObjects(collectErasableObjects(), true);
+    if (hits.length === 0) return;
+    const info = findEraseInfo(hits[0].object);
+    if (info) eraseObject(info);
+  }
+
+  function updateEditHint() {
+    const hint = document.getElementById('hint');
+    if (editMode.eraseArmed) {
+      hint.textContent = "[CLICK] ERASE OBJECT · press [E] to exit Edit Mode";
+    } else {
+      hint.textContent = "Edit Mode - choose an action · press [E] to exit";
+    }
+    hint.classList.add('placement-active');
+  }
+
+  function enterEditMode() {
+    if (placementMode.active) exitPlacementMode();
+    if (buildMode.active) exitBuildMode();
+    editMode.active = true;
+    editMode.eraseArmed = false;
+    document.getElementById('inventoryPanel').classList.add('hidden');
+    document.getElementById('petPanel').classList.add('hidden');
+    document.getElementById('editMenuModal').classList.add('show');
+    updateEditHint();
+  }
+
+  function exitEditMode() {
+    editMode.active = false;
+    editMode.eraseArmed = false;
+    document.getElementById('editMenuModal').classList.remove('show');
+    document.getElementById('eraseAllConfirmModal').classList.remove('show');
+    const hint = document.getElementById('hint');
+    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
+    hint.classList.remove('placement-active');
+  }
+
+  document.getElementById('closeEditMenu').addEventListener('click', exitEditMode);
+  document.getElementById('btnEraseSelected').addEventListener('click', () => {
+    editMode.eraseArmed = true;
+    document.getElementById('editMenuModal').classList.remove('show');
+    updateEditHint();
+  });
+  document.getElementById('btnEraseAllBuilds').addEventListener('click', () => {
+    document.getElementById('editMenuModal').classList.remove('show');
+    document.getElementById('eraseAllConfirmModal').classList.add('show');
+  });
+  document.getElementById('btnEraseAllCancel').addEventListener('click', () => {
+    document.getElementById('eraseAllConfirmModal').classList.remove('show');
+    document.getElementById('editMenuModal').classList.add('show');
+  });
+  document.getElementById('btnEraseAllConfirm').addEventListener('click', () => {
+    clearAllBuilds();
+    saveState();
+    logTransaction('ERASED: ALL BUILDS CLEARED', 'debit');
+    document.getElementById('eraseAllConfirmModal').classList.remove('show');
+    exitEditMode();
+  });
 
   function consumeItem(name) {
     if (!inventory[name] || inventory[name] <= 0) return;
@@ -4900,6 +5049,16 @@
       return;
     }
 
+    if (k === 'e' && !placementMode.active && !buildMode.active) {
+      if (editMode.active) exitEditMode(); else enterEditMode();
+      return;
+    }
+
+    if (editMode.active) {
+      if (k === 'escape') exitEditMode();
+      return;
+    }
+
     if (buildMode.active) {
       if (e.key === 'ArrowLeft') { cycleBuildType(-1); }
       if (e.key === 'ArrowRight') { cycleBuildType(1); }
@@ -4939,12 +5098,16 @@
   
   const smoothFocus = new THREE.Vector3(0, 2.1, 0);
 
-  window.addEventListener('mousedown', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('#minimapContainer') && !e.target.closest('.hud-panel') && !e.target.closest('#inventoryPanel') && !e.target.closest('#petPanel')) { isDragging = true; prevMouseX = e.clientX; prevMouseY = e.clientY; dragStartX = e.clientX; dragStartY = e.clientY; }});
+  window.addEventListener('mousedown', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('#minimapContainer') && !e.target.closest('.hud-panel') && !e.target.closest('#inventoryPanel') && !e.target.closest('#petPanel') && !e.target.closest('#editMenuModal') && !e.target.closest('#eraseAllConfirmModal')) { isDragging = true; prevMouseX = e.clientX; prevMouseY = e.clientY; dragStartX = e.clientX; dragStartY = e.clientY; }});
   window.addEventListener('mousemove', e => { if (!isDragging) return; const dx = e.clientX - prevMouseX; const dy = e.clientY - prevMouseY; camAngleX -= dx * 0.008; camAngleY = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, camAngleY + dy * 0.008)); prevMouseX = e.clientX; prevMouseY = e.clientY; });
   window.addEventListener('mouseup', e => {
     if (isDragging && buildMode.active) {
       const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
       if (dist < 6) placeBuildBlockAtHover();
+    }
+    if (isDragging && editMode.active && editMode.eraseArmed) {
+      const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+      if (dist < 6) eraseObjectAtMouse();
     }
     isDragging = false;
   });
@@ -5349,7 +5512,7 @@
     }
 
     // --- MOVEMENT & ROBOT ANIMATION ---
-    if (!placementMode.active && !buildMode.active) {
+    if (!placementMode.active && !buildMode.active && !editMode.active) {
       const currentMaxSpeed = isTurbo ? maxSpeed * 1.65 : maxSpeed;
       if (keys.w) moveSpeed = Math.min(currentMaxSpeed, moveSpeed + accel);
       else if (keys.s) moveSpeed = Math.max(-currentMaxSpeed * 0.6, moveSpeed - accel);

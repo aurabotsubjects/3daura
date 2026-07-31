@@ -21,7 +21,7 @@
   <button id="btnSettings" title="Settings" style="background:#673AB7; color:#fff;">⚙ Settings</button>
 </div>
 
-<div id="hint">ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets</div>
+<div id="hint">ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit</div>
 
 <!-- BOTTOM-LEFT RADAR MINIMAP -->
 <div id="minimapContainer" title="Click to open Full Area Map">
@@ -202,6 +202,39 @@
         <button id="btnResetAll">🔥 Reset Everything<br><small>Builds + Money + Inventory</small></button>
         <button id="btnResetBuildsOnly">🧹 Reset Builds Only<br><small>Keeps Money + Inventory</small></button>
         <button id="btnResetCancel">✖ Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MENU MODAL (press E) -->
+<div id="editMenuModal">
+  <div id="editMenuBox">
+    <div id="editMenuHeader">
+      <span>🛠 Edit Mode</span>
+      <button id="closeEditMenu" title="Close">✕</button>
+    </div>
+    <div id="editMenuBody">
+      <p>Choose an action, or press <strong>[E]</strong> anytime to exit.</p>
+      <div id="editMenuActions">
+        <button id="btnEraseSelected">🗑️ Erase Selected<br><small>Click any block, tree, or ground tile to remove it</small></button>
+        <button id="btnEraseAllBuilds">💥 Erase All Builds<br><small>Removes every placed block from the map</small></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ERASE ALL BUILDS CONFIRMATION -->
+<div id="eraseAllConfirmModal">
+  <div id="eraseAllConfirmBox">
+    <div id="eraseAllConfirmHeader">
+      <span>⚠ Erase All Builds</span>
+    </div>
+    <div id="eraseAllConfirmBody">
+      <p>Are you sure you want to do this? This will erase all your builds and cant be reversed.</p>
+      <div id="eraseAllConfirmActions">
+        <button id="btnEraseAllConfirm">💥 Yes, Erase Everything</button>
+        <button id="btnEraseAllCancel">✖ Cancel</button>
       </div>
     </div>
   </div>
