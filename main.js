@@ -4273,7 +4273,7 @@
   // Creates one building-block cube mesh at grid cell (gx,gz), stack level `level`
   // (0 = sitting on the ground, 1 = on top of the block at level 0, etc). Used both
   // for live placement and for rebuilding a saved game, so the two always stay in sync.
-  function createBuildBlockMesh(type, gx, gz, level, animateIn = true) {
+  function createBuildBlockMesh(type, gx, gz, level, animateIn = true, faceColors = null, faceTextures = null) {
     const key = `${gx},${gz}`;
     if (!buildGrid[key]) buildGrid[key] = [];
 
@@ -4282,14 +4282,38 @@
       delete gridRocks[key];
     }
 
-    const mat = createBlockMaterial(type);
+    // Each block gets its own independent material PER FACE (BoxGeometry's 6 default
+    // groups, in order +X/-X/+Y/-Y/+Z/-Z) rather than one shared material - this is
+    // what lets the Paint tools recolor or draw on a single face without touching the
+    // rest of the block. faceColors/faceTextures, if provided (e.g. when reloading a
+    // save), reapply anything previously painted/drawn immediately.
+    const baseMat = createBlockMaterial(type);
+    const materials = [0, 1, 2, 3, 4, 5].map(() => baseMat.clone());
+    baseMat.dispose();
     const size = GRID_SIZE * 0.96;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), materials);
     mesh.position.set(gx * GRID_SIZE, -4.65 + GRID_SIZE * (level + 0.5), gz * GRID_SIZE);
     mesh.castShadow = true; mesh.receiveShadow = true;
     addOutline(mesh, 0.04);
     mesh.userData.buildCell = { gx, gz, level };
     mesh.userData.eraseInfo = { kind: 'block', gx, gz, level };
+    mesh.userData.faceColors = [null, null, null, null, null, null];
+    mesh.userData.faceTextures = [null, null, null, null, null, null];
+    if (Array.isArray(faceColors)) {
+      faceColors.forEach((hex, i) => {
+        if (hex && materials[i]) { materials[i].color.set(hex); mesh.userData.faceColors[i] = hex; }
+      });
+    }
+    if (Array.isArray(faceTextures)) {
+      faceTextures.forEach((dataUrl, i) => {
+        if (dataUrl && materials[i]) {
+          new THREE.TextureLoader().load(dataUrl, tex => {
+            materials[i].map = tex; materials[i].color.set(0xffffff); materials[i].needsUpdate = true;
+          });
+          mesh.userData.faceTextures[i] = dataUrl;
+        }
+      });
+    }
     scene.add(mesh);
 
     if (animateIn) {
@@ -4523,7 +4547,8 @@
     buildBlockMeshes.forEach(mesh => {
       scene.remove(mesh);
       if (mesh.geometry) mesh.geometry.dispose();
-      if (mesh.material) mesh.material.dispose();
+      if (Array.isArray(mesh.material)) mesh.material.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+      else if (mesh.material) mesh.material.dispose();
     });
     buildBlockMeshes.length = 0;
     Object.keys(buildGrid).forEach(k => delete buildGrid[k]);
@@ -4544,7 +4569,7 @@
   // ---------- EDIT MODE (press E): erase individual blocks/trees/ground tiles ----------
   // Original scenery (kiosks, dispensers, the Pet Adoption Box, AURA, pets, etc.) is
   // never part of these lists, so it's simply impossible to select/erase it.
-  const editMode = { active: false, eraseArmed: false };
+  const editMode = { active: false, eraseArmed: false, sprayArmed: false, drawApplyArmed: false };
   const editRaycaster = new THREE.Raycaster();
 
   function collectErasableObjects() {
@@ -4581,7 +4606,8 @@
       const entry = stack[idx];
       scene.remove(entry.mesh);
       if (entry.mesh.geometry) entry.mesh.geometry.dispose();
-      if (entry.mesh.material) entry.mesh.material.dispose();
+      if (Array.isArray(entry.mesh.material)) entry.mesh.material.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+      else if (entry.mesh.material) entry.mesh.material.dispose();
       stack.splice(idx, 1);
       const meshIdx = buildBlockMeshes.indexOf(entry.mesh);
       if (meshIdx !== -1) buildBlockMeshes.splice(meshIdx, 1);
@@ -4626,20 +4652,189 @@
 
   function eraseObjectAtMouse() {
     editRaycaster.setFromCamera(mouseNDC, camera);
-    const hits = editRaycaster.intersectObjects(collectErasableObjects(), true);
+    const hits = editRaycaster.intersectObjects(collectErasableObjects(), true).filter(h => !h.object.isOutlineMesh);
     if (hits.length === 0) return;
     const info = findEraseInfo(hits[0].object);
     if (info) eraseObject(info);
+  }
+
+  // ---- Shared color wheel controller (used by both the Solid Color tool and the
+  // Custom Design canvas's brush color, as two fully independent instances) ----
+  function makeColorWheel(wrapId, wheelId, cursorId, lightnessSliderId, onChange) {
+    const state = { color: new THREE.Color(0xFF5E13), hue: 20, lightness: 50, sat: 1 };
+    function apply() {
+      state.color.setHSL(state.hue / 360, state.sat, state.lightness / 100);
+      if (onChange) onChange(state.color);
+    }
+    function updateFromPoint(clientX, clientY) {
+      const rect = document.getElementById(wheelId).getBoundingClientRect();
+      const radius = rect.width / 2;
+      const dx = clientX - (rect.left + radius), dy = clientY - (rect.top + radius);
+      const dist = Math.min(Math.hypot(dx, dy), radius);
+      state.sat = dist / radius;
+      // Angle measured clockwise from the top, matching the conic-gradient's "from 0deg" (12 o'clock) start.
+      state.hue = ((Math.atan2(dx, -dy) * 180 / Math.PI) + 360) % 360;
+      const cursor = document.getElementById(cursorId);
+      const angle = Math.atan2(dy, dx);
+      cursor.style.left = (radius + Math.cos(angle) * dist) + 'px';
+      cursor.style.top = (radius + Math.sin(angle) * dist) + 'px';
+      apply();
+    }
+    let dragging = false;
+    document.getElementById(wrapId).addEventListener('mousedown', e => { dragging = true; updateFromPoint(e.clientX, e.clientY); });
+    window.addEventListener('mousemove', e => { if (dragging) updateFromPoint(e.clientX, e.clientY); });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    document.getElementById(lightnessSliderId).addEventListener('input', e => {
+      state.lightness = parseFloat(e.target.value);
+      apply();
+    });
+    apply();
+    return state;
+  }
+
+  const solidColorWheel = makeColorWheel('colorWheelWrap', 'colorWheel', 'colorWheelCursor', 'sprayLightnessSlider', color => {
+    document.getElementById('sprayColorPreview').style.background = '#' + color.getHexString();
+  });
+  const drawColorWheel = makeColorWheel('paintColorWheelWrap', 'paintColorWheel', 'paintColorWheelCursor', 'paintLightnessSlider', () => {});
+
+  // Solid Color only targets blocks (they're the only "cube faces" in the game) -
+  // each block's 6 faces already have independent materials (see
+  // createBuildBlockMesh), so painting one face never affects its neighbors.
+  // Applying a flat color also clears any custom design that was on that face.
+  function paintObjectAtMouse() {
+    editRaycaster.setFromCamera(mouseNDC, camera);
+    const hits = editRaycaster.intersectObjects(buildBlockMeshes, true).filter(h => !h.object.isOutlineMesh);
+    if (hits.length === 0) return;
+    const hit = hits[0];
+    const mesh = hit.object;
+    const materialIndex = hit.face ? hit.face.materialIndex : 0;
+    if (!Array.isArray(mesh.material) || !mesh.material[materialIndex]) return;
+    const mat = mesh.material[materialIndex];
+    if (mat.map) { mat.map.dispose(); mat.map = null; }
+    mat.color.copy(solidColorWheel.color);
+    mat.needsUpdate = true;
+    if (!mesh.userData.faceColors) mesh.userData.faceColors = [null, null, null, null, null, null];
+    mesh.userData.faceColors[materialIndex] = '#' + solidColorWheel.color.getHexString();
+    if (mesh.userData.faceTextures) mesh.userData.faceTextures[materialIndex] = null;
+    logTransaction('PAINTED: BLOCK FACE', 'debit');
+    saveState();
+  }
+
+  // ---- Custom Design drawing canvas (freehand brush + text stamping) ----
+  const paintCanvasEl = document.getElementById('paintCanvas');
+  const paintCtx = paintCanvasEl.getContext('2d');
+  function clearDesignCanvas() {
+    paintCtx.fillStyle = '#ffffff';
+    paintCtx.fillRect(0, 0, paintCanvasEl.width, paintCanvasEl.height);
+  }
+  clearDesignCanvas();
+
+  function canvasPointFromEvent(e) {
+    const rect = paintCanvasEl.getBoundingClientRect();
+    const scaleX = paintCanvasEl.width / rect.width, scaleY = paintCanvasEl.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  let brushSize = 8;
+  document.getElementById('brushSizeSlider').addEventListener('input', e => { brushSize = parseFloat(e.target.value); });
+
+  let drawingOnCanvas = false, canvasStrokeMoved = false, lastCanvasPt = null, downCanvasPt = null;
+  paintCanvasEl.addEventListener('mousedown', e => {
+    drawingOnCanvas = true; canvasStrokeMoved = false;
+    downCanvasPt = canvasPointFromEvent(e);
+    lastCanvasPt = downCanvasPt;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!drawingOnCanvas) return;
+    const pt = canvasPointFromEvent(e);
+    const dist = Math.hypot(pt.x - downCanvasPt.x, pt.y - downCanvasPt.y);
+    if (!canvasStrokeMoved && dist < 3) return; // still just a tap so far - might become a text stamp instead
+    canvasStrokeMoved = true;
+    const hex = '#' + drawColorWheel.color.getHexString();
+    paintCtx.strokeStyle = hex; paintCtx.fillStyle = hex;
+    paintCtx.lineWidth = brushSize; paintCtx.lineCap = 'round'; paintCtx.lineJoin = 'round';
+    paintCtx.beginPath();
+    paintCtx.moveTo(lastCanvasPt.x, lastCanvasPt.y);
+    paintCtx.lineTo(pt.x, pt.y);
+    paintCtx.stroke();
+    // A few scattered dots around the stroke give it a grainy, actually-sprayed feel
+    for (let i = 0; i < 3; i++) {
+      paintCtx.globalAlpha = 0.3 + Math.random() * 0.2;
+      paintCtx.beginPath();
+      paintCtx.arc(pt.x + (Math.random() - 0.5) * brushSize * 1.6, pt.y + (Math.random() - 0.5) * brushSize * 1.6, Math.random() * brushSize * 0.22, 0, Math.PI * 2);
+      paintCtx.fill();
+    }
+    paintCtx.globalAlpha = 1;
+    lastCanvasPt = pt;
+  });
+  window.addEventListener('mouseup', () => {
+    if (!drawingOnCanvas) return;
+    drawingOnCanvas = false;
+    if (!canvasStrokeMoved) {
+      // A simple tap (no drag) - if there's text waiting, stamp it here instead of drawing a dot.
+      const text = document.getElementById('paintTextInput').value.trim();
+      if (text) {
+        paintCtx.fillStyle = '#' + drawColorWheel.color.getHexString();
+        paintCtx.font = 'bold 30px sans-serif';
+        paintCtx.textAlign = 'center';
+        paintCtx.textBaseline = 'middle';
+        paintCtx.fillText(text, downCanvasPt.x, downCanvasPt.y);
+      }
+    }
+  });
+  document.getElementById('btnClearCanvas').addEventListener('click', clearDesignCanvas);
+
+  function setApplyDesignArmed(armed) {
+    editMode.drawApplyArmed = armed;
+    const btn = document.getElementById('btnApplyDesign');
+    btn.textContent = armed ? '🎯 Applying... (click a block face)' : '🎯 Apply to Block Face';
+    btn.classList.toggle('armed', armed);
+  }
+  document.getElementById('btnApplyDesign').addEventListener('click', () => {
+    setApplyDesignArmed(!editMode.drawApplyArmed);
+    updateEditHint();
+  });
+
+  function applyDesignAtMouse() {
+    editRaycaster.setFromCamera(mouseNDC, camera);
+    const hits = editRaycaster.intersectObjects(buildBlockMeshes, true).filter(h => !h.object.isOutlineMesh);
+    if (hits.length === 0) return;
+    const hit = hits[0];
+    const mesh = hit.object;
+    const materialIndex = hit.face ? hit.face.materialIndex : 0;
+    if (!Array.isArray(mesh.material) || !mesh.material[materialIndex]) return;
+    const mat = mesh.material[materialIndex];
+    if (mat.map) mat.map.dispose();
+    const tex = new THREE.CanvasTexture(paintCanvasEl);
+    tex.needsUpdate = true;
+    mat.map = tex;
+    mat.color.set(0xffffff);
+    mat.needsUpdate = true;
+    if (!mesh.userData.faceTextures) mesh.userData.faceTextures = [null, null, null, null, null, null];
+    mesh.userData.faceTextures[materialIndex] = paintCanvasEl.toDataURL('image/png');
+    if (!mesh.userData.faceColors) mesh.userData.faceColors = [null, null, null, null, null, null];
+    mesh.userData.faceColors[materialIndex] = null; // texture takes precedence over a flat color
+    logTransaction('PAINTED: CUSTOM DESIGN', 'debit');
+    saveState();
   }
 
   function updateEditHint() {
     const hint = document.getElementById('hint');
     if (editMode.eraseArmed) {
       hint.textContent = "[CLICK] ERASE OBJECT · press [E] to exit Edit Mode";
+    } else if (editMode.sprayArmed) {
+      hint.textContent = "[CLICK] a block face to paint it · press [E] to exit Edit Mode";
+    } else if (editMode.drawApplyArmed) {
+      hint.textContent = "[CLICK] a block face to apply your design · press [E] to exit Edit Mode";
     } else {
       hint.textContent = "Edit Mode - choose an action · press [E] to exit";
     }
     hint.classList.add('placement-active');
+  }
+
+  function showEditMenuMain() {
+    document.getElementById('paintSubMenu').classList.add('hidden');
+    document.getElementById('editMenuActions').classList.remove('hidden');
   }
 
   function enterEditMode() {
@@ -4647,8 +4842,13 @@
     if (buildMode.active) exitBuildMode();
     editMode.active = true;
     editMode.eraseArmed = false;
+    editMode.sprayArmed = false;
+    setApplyDesignArmed(false);
     document.getElementById('inventoryPanel').classList.add('hidden');
     document.getElementById('petPanel').classList.add('hidden');
+    document.getElementById('spraypaintPanel').classList.add('hidden');
+    document.getElementById('paintCanvasModal').classList.remove('show');
+    showEditMenuMain();
     document.getElementById('editMenuModal').classList.add('show');
     updateEditHint();
   }
@@ -4656,8 +4856,13 @@
   function exitEditMode() {
     editMode.active = false;
     editMode.eraseArmed = false;
+    editMode.sprayArmed = false;
+    setApplyDesignArmed(false);
     document.getElementById('editMenuModal').classList.remove('show');
     document.getElementById('eraseAllConfirmModal').classList.remove('show');
+    document.getElementById('spraypaintPanel').classList.add('hidden');
+    document.getElementById('paintCanvasModal').classList.remove('show');
+    showEditMenuMain();
     const hint = document.getElementById('hint');
     hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
@@ -4667,6 +4872,28 @@
   document.getElementById('btnEraseSelected').addEventListener('click', () => {
     editMode.eraseArmed = true;
     document.getElementById('editMenuModal').classList.remove('show');
+    updateEditHint();
+  });
+  document.getElementById('btnOpenPaintMenu').addEventListener('click', () => {
+    document.getElementById('editMenuActions').classList.add('hidden');
+    document.getElementById('paintSubMenu').classList.remove('hidden');
+  });
+  document.getElementById('btnPaintBack').addEventListener('click', showEditMenuMain);
+  document.getElementById('btnPaintSolid').addEventListener('click', () => {
+    editMode.sprayArmed = true;
+    document.getElementById('editMenuModal').classList.remove('show');
+    document.getElementById('spraypaintPanel').classList.remove('hidden');
+    updateEditHint();
+  });
+  document.getElementById('btnPaintCustom').addEventListener('click', () => {
+    document.getElementById('editMenuModal').classList.remove('show');
+    document.getElementById('paintCanvasModal').classList.add('show');
+    updateEditHint();
+  });
+  document.getElementById('closePaintCanvas').addEventListener('click', () => {
+    document.getElementById('paintCanvasModal').classList.remove('show');
+    setApplyDesignArmed(false);
+    document.getElementById('editMenuModal').classList.add('show');
     updateEditHint();
   });
   document.getElementById('btnEraseAllBuilds').addEventListener('click', () => {
@@ -5098,7 +5325,7 @@
   
   const smoothFocus = new THREE.Vector3(0, 2.1, 0);
 
-  window.addEventListener('mousedown', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('#minimapContainer') && !e.target.closest('.hud-panel') && !e.target.closest('#inventoryPanel') && !e.target.closest('#petPanel') && !e.target.closest('#editMenuModal') && !e.target.closest('#eraseAllConfirmModal')) { isDragging = true; prevMouseX = e.clientX; prevMouseY = e.clientY; dragStartX = e.clientX; dragStartY = e.clientY; }});
+  window.addEventListener('mousedown', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('#minimapContainer') && !e.target.closest('.hud-panel') && !e.target.closest('#inventoryPanel') && !e.target.closest('#petPanel') && !e.target.closest('#editMenuModal') && !e.target.closest('#eraseAllConfirmModal') && !e.target.closest('#spraypaintPanel') && !e.target.closest('#paintCanvasModal')) { isDragging = true; prevMouseX = e.clientX; prevMouseY = e.clientY; dragStartX = e.clientX; dragStartY = e.clientY; }});
   window.addEventListener('mousemove', e => { if (!isDragging) return; const dx = e.clientX - prevMouseX; const dy = e.clientY - prevMouseY; camAngleX -= dx * 0.008; camAngleY = Math.max(0.05, Math.min(Math.PI / 2 - 0.05, camAngleY + dy * 0.008)); prevMouseX = e.clientX; prevMouseY = e.clientY; });
   window.addEventListener('mouseup', e => {
     if (isDragging && buildMode.active) {
@@ -5108,6 +5335,14 @@
     if (isDragging && editMode.active && editMode.eraseArmed) {
       const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
       if (dist < 6) eraseObjectAtMouse();
+    }
+    if (isDragging && editMode.active && editMode.sprayArmed) {
+      const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+      if (dist < 6) paintObjectAtMouse();
+    }
+    if (isDragging && editMode.active && editMode.drawApplyArmed) {
+      const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+      if (dist < 6) applyDesignAtMouse();
     }
     isDragging = false;
   });
@@ -5170,7 +5405,17 @@
     const out = [];
     Object.keys(buildGrid).forEach(key => {
       const [gx, gz] = key.split(',').map(Number);
-      buildGrid[key].forEach(entry => { out.push({ gx, gz, level: entry.level, type: entry.type }); });
+      buildGrid[key].forEach(entry => {
+        const fc = entry.mesh.userData.faceColors;
+        const painted = fc && fc.some(c => c);
+        const ft = entry.mesh.userData.faceTextures;
+        const drawn = ft && ft.some(c => c);
+        out.push({
+          gx, gz, level: entry.level, type: entry.type,
+          faceColors: painted ? fc : undefined,
+          faceTextures: drawn ? ft : undefined
+        });
+      });
     });
     return out;
   }
@@ -5232,7 +5477,7 @@
 
     if (Array.isArray(data.buildGrid)) {
       data.buildGrid.slice().sort((a, b) => a.level - b.level)
-        .forEach(b => createBuildBlockMesh(b.type, b.gx, b.gz, b.level, false));
+        .forEach(b => createBuildBlockMesh(b.type, b.gx, b.gz, b.level, false, b.faceColors || null, b.faceTextures || null));
     }
 
     logTransaction('SAVED GAME LOADED', 'credit');

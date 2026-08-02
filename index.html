@@ -215,10 +215,82 @@
       <button id="closeEditMenu" title="Close">✕</button>
     </div>
     <div id="editMenuBody">
-      <p>Choose an action, or press <strong>[E]</strong> anytime to exit.</p>
+      <p id="editMenuPrompt">Choose an action, or press <strong>[E]</strong> anytime to exit.</p>
+
       <div id="editMenuActions">
         <button id="btnEraseSelected">🗑️ Erase Selected<br><small>Click any block, tree, or ground tile to remove it</small></button>
+        <button id="btnOpenPaintMenu">🎨 Paint<br><small>Color or draw a custom design on any block face</small></button>
         <button id="btnEraseAllBuilds">💥 Erase All Builds<br><small>Removes every placed block from the map</small></button>
+      </div>
+
+      <div id="paintSubMenu" class="hidden">
+        <button id="btnPaintSolid">🪣 Solid Color<br><small>Pick a color, then click any block face to fill it</small></button>
+        <button id="btnPaintCustom">✏️ Custom Design<br><small>Draw or write whatever you want, then stamp it onto a face</small></button>
+        <button id="btnPaintBack">← Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SOLID COLOR WHEEL (floating, non-blocking panel) -->
+<div id="spraypaintPanel" class="hidden">
+  <div class="panel-header">
+    <span>🪣 Solid Color</span>
+    <span class="status-badge pink">[E] EXIT</span>
+  </div>
+  <p id="spraypaintHint">Pick a color below, then click any face of a block to paint it.</p>
+  <div id="colorWheelWrap">
+    <div id="colorWheel"></div>
+    <div id="colorWheelCursor"></div>
+  </div>
+  <div class="settings-row" style="margin-top:10px;">
+    <div class="settings-row-label"><span>Brightness</span></div>
+    <div class="settings-slider-wrap">
+      <input type="range" id="sprayLightnessSlider" min="10" max="90" step="1" value="50">
+    </div>
+  </div>
+  <div id="sprayColorPreviewRow">
+    <span>Current color:</span>
+    <div id="sprayColorPreview"></div>
+  </div>
+</div>
+
+<!-- CUSTOM DESIGN DRAWING CANVAS -->
+<div id="paintCanvasModal">
+  <div id="paintCanvasBox">
+    <div id="paintCanvasHeader">
+      <span>✏️ Custom Design</span>
+      <button id="closePaintCanvas" title="Close">✕</button>
+    </div>
+    <div id="paintCanvasBody">
+      <div id="paintCanvasMain">
+        <canvas id="paintCanvas" width="256" height="256"></canvas>
+        <div id="paintCanvasTools">
+          <div id="paintColorWheelWrap">
+            <div id="paintColorWheel"></div>
+            <div id="paintColorWheelCursor"></div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><span>Brightness</span></div>
+            <div class="settings-slider-wrap">
+              <input type="range" id="paintLightnessSlider" min="10" max="90" step="1" value="50">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-label"><span>Brush Size</span></div>
+            <div class="settings-slider-wrap">
+              <input type="range" id="brushSizeSlider" min="2" max="24" step="1" value="8">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="paintTextRow">
+        <input type="text" id="paintTextInput" placeholder="Type a word, then tap the canvas to stamp it" maxlength="24">
+      </div>
+      <p id="paintCanvasHint">Draw with your mouse. Type a word above, then click the canvas to place it. Press <strong>[E]</strong> anytime to exit.</p>
+      <div id="paintCanvasActions">
+        <button id="btnClearCanvas">🧹 Clear</button>
+        <button id="btnApplyDesign">🎯 Apply to Block Face</button>
       </div>
     </div>
   </div>

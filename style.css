@@ -178,6 +178,7 @@
   #editMenuBody { padding: 20px; }
   #editMenuBody p { margin: 0 0 16px; color: #fff; font-size: 13px; font-weight: 700; text-align: center; }
   #editMenuActions { display: flex; flex-direction: column; gap: 10px; }
+  #editMenuActions.hidden { display: none; }
   #editMenuActions button {
     border: 2px solid #000; border-radius: 10px; padding: 10px 8px;
     font-family: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
@@ -186,6 +187,80 @@
   }
   #editMenuActions button small { font-size: 9px; font-weight: 700; text-transform: none; letter-spacing: 0; opacity: 0.85; }
   #editMenuActions button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+  #btnOpenPaintMenu { background: #B98CFF; color: #000; }
+
+  #paintSubMenu.hidden { display: none; }
+  #paintSubMenu { display: flex; flex-direction: column; gap: 10px; }
+  #paintSubMenu button {
+    border: 2px solid #000; border-radius: 10px; padding: 10px 8px;
+    font-family: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+    text-transform: uppercase; transition: transform 0.15s ease, box-shadow 0.15s ease;
+    line-height: 1.5;
+  }
+  #paintSubMenu button small { font-size: 9px; font-weight: 700; text-transform: none; letter-spacing: 0; opacity: 0.85; }
+  #paintSubMenu button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+  #btnPaintSolid { background: #2EE2FA; color: #000; }
+  #btnPaintCustom { background: #B98CFF; color: #000; }
+  #btnPaintBack { background: #fff; color: #000; }
+
+  /* ---------- CUSTOM DESIGN DRAWING CANVAS ---------- */
+  /* A floating, non-blocking panel (like #spraypaintPanel) rather than a full-screen
+     modal - it only occupies its own box on screen, so clicking anywhere else (like a
+     block face in the 3D scene, needed for "Apply to Block Face") passes straight through. */
+  #paintCanvasModal {
+    position: fixed; left: 20px; top: 50%; z-index: 115;
+    transform: translateY(-50%) translateX(-24px) scale(0.95);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  }
+  #paintCanvasModal.show { opacity: 1; pointer-events: auto; transform: translateY(-50%) translateX(0) scale(1); }
+  #paintCanvasBox {
+    position: relative; width: 340px; max-width: 90vw;
+    background: rgba(11, 12, 16, 0.96); border: 3px solid #B98CFF;
+    border-radius: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  #paintCanvasHeader {
+    padding: 14px 20px; background: #0B0C10; border-bottom: 2px solid #B98CFF;
+    color: #B98CFF; font-weight: 900; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  #closePaintCanvas { background: none; border: none; color: #B98CFF; font-size: 16px; font-weight: 900; cursor: pointer; padding: 0 4px; }
+  #paintCanvasBody { padding: 18px 20px; }
+  #paintCanvasMain { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  #paintCanvas {
+    width: 200px; height: 200px; border-radius: 12px; border: 3px solid #000;
+    background: #fff; cursor: crosshair; touch-action: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  }
+  #paintCanvasTools { width: 150px; display: flex; flex-direction: column; gap: 10px; }
+  #paintColorWheelWrap { position: relative; width: 130px; height: 130px; margin: 0 auto; cursor: crosshair; }
+  #paintColorWheel {
+    width: 100%; height: 100%; border-radius: 50%; border: 3px solid #000;
+    background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 68%),
+      conic-gradient(from 0deg, #FF0000, #FFFF00, #00FF00, #00FFFF, #0000FF, #FF00FF, #FF0000);
+  }
+  #paintColorWheelCursor {
+    position: absolute; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000; pointer-events: none;
+    top: 50%; left: 50%; transform: translate(-50%, -50%); background: #FF5E13;
+  }
+  #paintTextRow { margin-top: 14px; }
+  #paintTextInput {
+    width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px;
+    border: 2px solid #000; font-family: inherit; font-size: 12px; font-weight: 700;
+  }
+  #paintCanvasHint { font-size: 10px; font-weight: 700; color: #ccc; text-align: center; margin: 12px 0 4px; line-height: 1.5; }
+  #paintCanvasActions { display: flex; gap: 10px; margin-top: 10px; }
+  #paintCanvasActions button {
+    flex: 1; border: 2px solid #000; border-radius: 10px; padding: 10px 8px;
+    font-family: inherit; font-size: 11px; font-weight: 800; cursor: pointer;
+    text-transform: uppercase; transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  #paintCanvasActions button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+  #btnClearCanvas { background: #fff; color: #000; }
+  #btnApplyDesign { background: #B98CFF; color: #000; }
+  #btnApplyDesign.armed { background: #00C853; color: #fff; }
   #btnEraseSelected { background: #2EE2FA; color: #000; }
   #btnEraseAllBuilds { background: #FF5A5F; color: #fff; }
 
@@ -219,6 +294,31 @@
   #eraseAllConfirmActions button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
   #btnEraseAllConfirm { background: #FF5A5F; color: #fff; }
   #btnEraseAllCancel { background: #fff; color: #000; }
+
+  /* ---------- SPRAYPAINT PANEL (floating, does not block scene clicks) ---------- */
+  #spraypaintPanel {
+    position: fixed; left: 20px; top: 50%; transform: translateY(-50%);
+    width: 240px; background: rgba(11, 12, 16, 0.94); border: 2px solid #000;
+    border-radius: 18px; padding: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    z-index: 90; backdrop-filter: blur(10px); color: #fff;
+    transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  }
+  #spraypaintPanel.hidden { opacity: 0; transform: translateY(-50%) translateX(-24px) scale(0.95); pointer-events: none; }
+  #spraypaintHint { font-size: 10px; font-weight: 700; color: #ccc; text-align: center; margin: 8px 0 14px; line-height: 1.5; }
+  #colorWheelWrap { position: relative; width: 160px; height: 160px; margin: 0 auto; cursor: crosshair; }
+  #colorWheel {
+    width: 100%; height: 100%; border-radius: 50%; border: 3px solid #000;
+    background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 68%),
+      conic-gradient(from 0deg, #FF0000, #FFFF00, #00FF00, #00FFFF, #0000FF, #FF00FF, #FF0000);
+  }
+  #colorWheelCursor {
+    position: absolute; width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000; pointer-events: none;
+    top: 50%; left: 50%; transform: translate(-50%, -50%); background: #FF5E13;
+  }
+  #sprayColorPreviewRow { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; font-size: 11px; font-weight: 800; }
+  #sprayColorPreview { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #000; background: #FF5E13; }
 
   /* ---------- SETTINGS MODAL ---------- */
   #settingsModal {
