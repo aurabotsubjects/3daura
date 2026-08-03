@@ -3317,7 +3317,7 @@
   const symbolExtrudeSettings = { depth: 0.22, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 3 };
 
   // ---------- 3D LANDMARK 1: KIOSK TERMINAL (9, -3) ----------
-  const kioskGroup = new THREE.Group(); kioskGroup.position.set(9, -4.65, -3); kioskGroup.rotation.y = -Math.PI / 5; scene.add(kioskGroup);
+  const kioskGroup = new THREE.Group(); kioskGroup.position.set(18, -4.65, -3); kioskGroup.rotation.y = -Math.PI / 5; scene.add(kioskGroup);
   const kioskBase = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 0.6, 24), bodyMat(COLORS.grey));
   kioskBase.position.y = 0.3; kioskBase.castShadow = true; kioskBase.receiveShadow = true; addOutline(kioskBase, 0.05); kioskGroup.add(kioskBase);
   const kioskPillar = ribbedTube(3.8, 0.45, 5, COLORS.grey, COLORS.greyLt); kioskPillar.position.y = 2.5; kioskGroup.add(kioskPillar);
@@ -3342,7 +3342,7 @@
   const qRing = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.05, 12, 32), hologramMat); qRing.rotation.x = Math.PI / 2; qRing.position.y = -1.1; addOutline(qRing, 0.03); beaconSphere.add(qRing);
 
   // ---------- 3D LANDMARK 2: BANK EFTPOS TERMINAL (-9, -4) ----------
-  const eftposGroup = new THREE.Group(); eftposGroup.position.set(-9, -4.65, -4); eftposGroup.rotation.y = Math.PI / 4; scene.add(eftposGroup);
+  const eftposGroup = new THREE.Group(); eftposGroup.position.set(-18, -4.65, -4); eftposGroup.rotation.y = Math.PI / 4; scene.add(eftposGroup);
   const eftposBase = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.0, 0.5, 24), bodyMat(COLORS.grey));
   eftposBase.position.y = 0.25; eftposBase.castShadow = true; eftposBase.receiveShadow = true; addOutline(eftposBase, 0.05); eftposGroup.add(eftposBase);
   const eftposPillar = ribbedTube(3.4, 0.4, 4, COLORS.grey, COLORS.greyLt); eftposPillar.position.y = 2.2; eftposGroup.add(eftposPillar);
@@ -3567,7 +3567,7 @@
   // radius as the Build Dispenser (which sits directly north of the Kiosk) -
   // together with the Snack (west) and Nature (east) Dispensers, this completes
   // a balanced 4-point compass rose of landmarks around the Kiosk/Bank hub.
-  const ADOPT_X = 9, ADOPT_Z = 50.25;
+  const ADOPT_X = 18, ADOPT_Z = 50.25;
   const adoptGroup = new THREE.Group();
   adoptGroup.position.set(ADOPT_X, -4.65, ADOPT_Z);
   adoptGroup.rotation.y = Math.PI; // front (sticker + opening) faces back north, toward the Kiosk/spawn
@@ -3954,7 +3954,7 @@
     placementMode.active = false;
     gridOverlayGroup.visible = false;
     const hint = document.getElementById('hint');
-    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
+    hint.textContent = "ARROW KEYS move · [SPACE] jump · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
   }
 
@@ -4384,14 +4384,18 @@
   }
 
   // AURA is treated as a simple standing cylinder for collision purposes - only
-  // blocks whose vertical span actually overlaps AURA's body height can push back
-  // on it, so a roof/overhang built high enough overhead can always be walked
-  // under freely, exactly like walking under a real balcony.
+  // blocks whose vertical span actually overlaps AURA's CURRENT body height can push
+  // back on it. That height band tracks robot.position.y (including jump height and
+  // standing on top of blocks), which is what lets a roof/overhang built high enough
+  // overhead be walked under freely, and lets AURA land and stand on top of a block
+  // without being shoved back off it sideways.
   const ROBOT_COLLIDE_RADIUS = 1.7;
-  const ROBOT_COLLIDE_Y_MIN = -4.6, ROBOT_COLLIDE_Y_MAX = 4.5;
+  const ROBOT_FEET_OFFSET = -4.7, ROBOT_HEAD_OFFSET = 4.4; // relative to robot.position.y
   function resolveBuildCollisions(prevX, prevZ) {
+    const feetY = robot.position.y + ROBOT_FEET_OFFSET;
+    const headY = robot.position.y + ROBOT_HEAD_OFFSET;
     for (const box of buildCollisionBoxes) {
-      if (box.maxY <= ROBOT_COLLIDE_Y_MIN || box.minY >= ROBOT_COLLIDE_Y_MAX) continue; // no vertical overlap - walk under/over freely
+      if (box.maxY <= feetY || box.minY >= headY) continue; // no vertical overlap - walk under/over/stand-atop freely
       const closestX = Math.max(box.minX, Math.min(robot.position.x, box.maxX));
       const closestZ = Math.max(box.minZ, Math.min(robot.position.z, box.maxZ));
       const dx = robot.position.x - closestX, dz = robot.position.z - closestZ;
@@ -4437,7 +4441,7 @@
     buildPreviewMesh.visible = false;
     faceHighlightMesh.visible = false;
     const hint = document.getElementById('hint');
-    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
+    hint.textContent = "ARROW KEYS move · [SPACE] jump · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
   }
 
@@ -4864,7 +4868,7 @@
     document.getElementById('paintCanvasModal').classList.remove('show');
     showEditMenuMain();
     const hint = document.getElementById('hint');
-    hint.textContent = "ARROW KEYS move · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
+    hint.textContent = "ARROW KEYS move · [SPACE] jump · drag orbit · scroll zoom · press [Q] for inventory · [P] for pets · [E] to edit";
     hint.classList.remove('placement-active');
   }
 
@@ -5229,12 +5233,12 @@
     });
 
     const landmarks = [
-      { name: "KIOSK", x: 9, z: -3, color: "#2EE2FA", size: 5 },
-      { name: "BANK", x: -9, z: -4, color: "#FFB800", size: 5 },
+      { name: "KIOSK", x: 18, z: -3, color: "#2EE2FA", size: 5 },
+      { name: "BANK", x: -18, z: -4, color: "#FFB800", size: 5 },
       { name: "SNACKS", x: -63, z: -2.5, color: "#FF007F", size: 6 },
       { name: "NATURE", x: 63, z: -2.5, color: "#00C853", size: 6 },
       { name: "BUILD", x: 0, z: -56.25, color: "#1E88E5", size: 6 },
-      { name: "PET ADOPT", x: 9, z: 50.25, color: "#FF4D8D", size: 6 }
+      { name: "PET ADOPT", x: 18, z: 50.25, color: "#FF4D8D", size: 6 }
     ];
 
     landmarks.forEach(lm => {
@@ -5308,6 +5312,7 @@
     if (e.key === 'ArrowDown') keys.s = true;
     if (e.key === 'ArrowLeft') keys.a = true;
     if (e.key === 'ArrowRight') keys.d = true;
+    if (k === ' ' || e.code === 'Space') { e.preventDefault(); tryJump(); }
   });
 
   window.addEventListener('keyup', e => {
@@ -5351,6 +5356,37 @@
 
   let moveSpeed = 0, turnSpeed = 0, walkPhase = 0;
   const maxSpeed = 0.22, maxTurn = 0.05, accel = 0.019, friction = 0.88;
+
+  // ---------- JUMP (Space bar) ----------
+  // Jump height is 1.5x a block's stacking height, comfortably enough to land on
+  // top of a single block. Gravity is tuned so the whole jump feels snappy rather
+  // than floaty. jumpY is tracked as an ABSOLUTE height (not relative to whatever's
+  // currently underneath AURA) so the arc itself is always one smooth parabola -
+  // landing is simply detected as "the falling trajectory has reached the surface
+  // now beneath AURA's current x/z". This matters: recalculating height relative to
+  // the live surface every frame would cause a sudden pop the instant AURA's
+  // horizontal position crosses onto/off a block's footprint mid-air.
+  let isJumping = false, jumpVelocity = 0, jumpY = 0, landingSquash = 0;
+  const JUMP_HEIGHT = GRID_SIZE * 1.5;
+  const JUMP_GRAVITY = 30;
+  const JUMP_INITIAL_VELOCITY = Math.sqrt(2 * JUMP_GRAVITY * JUMP_HEIGHT);
+  const WORLD_GROUND_Y = -4.65, ROBOT_GROUND_BASE_Y = 0.1;
+  let smoothedGroundY = ROBOT_GROUND_BASE_Y; // eases toward the current standing height when NOT actively jumping, so stepping off a ledge glides down instead of snapping
+
+  function getStandingSurfaceOffset(x, z) {
+    let topY = WORLD_GROUND_Y;
+    for (const box of buildCollisionBoxes) {
+      if (x >= box.minX && x <= box.maxX && z >= box.minZ && z <= box.maxZ && box.maxY > topY) topY = box.maxY;
+    }
+    return topY - WORLD_GROUND_Y;
+  }
+
+  function tryJump() {
+    if (isJumping || isDancing || placementMode.active || buildMode.active || editMode.active) return;
+    isJumping = true;
+    jumpVelocity = JUMP_INITIAL_VELOCITY;
+    jumpY = ROBOT_GROUND_BASE_Y + getStandingSurfaceOffset(robot.position.x, robot.position.z);
+  }
   let currentTheme = "original";
 
   document.querySelectorAll('#palette button[data-theme]').forEach(btn => {
@@ -5779,15 +5815,52 @@
       moveSpeed = 0; turnSpeed = 0;
     }
 
-    // --- ROBOT DANCE OR WALKING KINEMATICS ---
+    // --- JUMP PHYSICS: gravity arc + landing on top of whatever's below AURA ---
+    const surfaceOffset = getStandingSurfaceOffset(robot.position.x, robot.position.z);
+    const targetGroundY = ROBOT_GROUND_BASE_Y + surfaceOffset;
+    let groundBaseY;
+    let jumpHeightAboveSurface = 0;
+    if (isJumping) {
+      jumpVelocity -= JUMP_GRAVITY * dt;
+      jumpY += jumpVelocity * dt;
+      if (jumpY <= targetGroundY) {
+        // The falling arc has reached whatever surface is currently below AURA
+        // (ground, or the top of a block) - land right there, cleanly, once.
+        jumpY = targetGroundY; isJumping = false; jumpVelocity = 0;
+        landingSquash = 1; // triggers a quick squash-and-recover bounce on impact
+      }
+      groundBaseY = jumpY;
+      smoothedGroundY = groundBaseY;
+      jumpHeightAboveSurface = Math.max(0, jumpY - targetGroundY);
+    } else {
+      // Not jumping - ease toward the current standing height rather than snapping,
+      // so stepping off a block's edge (after having jumped up onto it) glides down
+      // quickly instead of instantly teleporting to ground level.
+      smoothedGroundY += (targetGroundY - smoothedGroundY) * Math.min(1, dt * 10);
+      groundBaseY = smoothedGroundY;
+    }
+    landingSquash *= 0.82;
+
+    // --- ROBOT DANCE / JUMP / WALKING / IDLE KINEMATICS ---
     if (isDancing) {
       const dSpeed = time * 0.012;
-      robot.position.y = 0.1 + Math.abs(Math.sin(dSpeed * 2)) * 0.6;
+      robot.position.y = groundBaseY + Math.abs(Math.sin(dSpeed * 2)) * 0.6;
       animBones.torso.rotation.z = Math.sin(dSpeed) * 0.3;
       animBones.armL.shoulder.rotation.z = Math.sin(dSpeed) * 1.2 - 0.5;
       animBones.armR.shoulder.rotation.z = -Math.sin(dSpeed) * 1.2 + 0.5;
       animBones.legL.hip.rotation.x = Math.sin(dSpeed * 2) * 0.6;
       animBones.legR.hip.rotation.x = -Math.sin(dSpeed * 2) * 0.6;
+    } else if (isJumping) {
+      // Legs tuck up and arms swing up together (not alternating like a walk cycle) -
+      // strongest right around the peak of the arc, easing back out on the way down.
+      robot.position.y = groundBaseY;
+      const poseAmt = Math.min(1, jumpHeightAboveSurface / JUMP_HEIGHT + 0.15);
+      animBones.legL.hip.rotation.x = -poseAmt * 0.7;
+      animBones.legR.hip.rotation.x = -poseAmt * 0.7;
+      animBones.armL.shoulder.rotation.x = poseAmt * 0.9;
+      animBones.armR.shoulder.rotation.x = poseAmt * 0.9;
+      animBones.torso.rotation.z *= 0.8;
+      animBones.armL.shoulder.rotation.z *= 0.8; animBones.armR.shoulder.rotation.z *= 0.8;
     } else if (Math.abs(moveSpeed) > 0.005 || Math.abs(turnSpeed) > 0.005) {
       // Leg cadence and bounce height track the robot's ACTUAL current speed every frame
       // (rather than a fixed rate), so accelerating/braking smoothly speeds up or relaxes
@@ -5796,7 +5869,7 @@
       const cadence = 14 * speedRatio; // radians/sec of leg-cycle, scales with speed
       walkPhase += dt * cadence;
       const stride = Math.sin(walkPhase) * (moveSpeed / maxSpeed);
-      robot.position.y = 0.1 + Math.abs(Math.sin(walkPhase * 2)) * (0.10 + 0.10 * Math.min(speedRatio, 1.7));
+      robot.position.y = groundBaseY - landingSquash * 0.3 + Math.abs(Math.sin(walkPhase * 2)) * (0.10 + 0.10 * Math.min(speedRatio, 1.7));
       animBones.legL.hip.rotation.x = stride * 0.9;
       animBones.legR.hip.rotation.x = -stride * 0.9;
       animBones.armL.shoulder.rotation.x = -stride * 0.7;
@@ -5804,12 +5877,13 @@
       animBones.torso.rotation.z = 0;
       animBones.armL.shoulder.rotation.z = 0; animBones.armR.shoulder.rotation.z = 0;
     } else {
-      robot.position.y = 0.1 + Math.sin(time * 0.003) * 0.05;
+      robot.position.y = groundBaseY - landingSquash * 0.3 + Math.sin(time * 0.003) * 0.05;
       animBones.legL.hip.rotation.x *= 0.85; animBones.legR.hip.rotation.x *= 0.85;
       animBones.armL.shoulder.rotation.x *= 0.85; animBones.armR.shoulder.rotation.x *= 0.85;
       animBones.torso.rotation.z *= 0.85;
       animBones.armL.shoulder.rotation.z *= 0.85; animBones.armR.shoulder.rotation.z *= 0.85;
     }
+
 
     // --- PETS: FOLLOW AURA IN THE USER-DEFINED ORDER (set via the Pet Menu - press P) ---
     const auraIsStillForPets = Math.abs(moveSpeed) < 0.012 && Math.abs(turnSpeed) < 0.012;
@@ -5819,7 +5893,7 @@
     updateGroupCheer(time);
 
     // --- PROXIMITY CHECKING & HUD PANEL UPDATES ---
-    const distToKiosk = Math.hypot(robot.position.x - 9, robot.position.z - (-3));
+    const distToKiosk = Math.hypot(robot.position.x - 18, robot.position.z - (-3));
     const isKioskLinked = distToKiosk < 14;
     updateKioskCanvas(time, isKioskLinked);
     if (isKioskLinked) {
@@ -5832,7 +5906,7 @@
       if (isQuizActive) endQuiz(false);
     }
 
-    const distToBank = Math.hypot(robot.position.x - (-9), robot.position.z - (-4));
+    const distToBank = Math.hypot(robot.position.x - (-18), robot.position.z - (-4));
     const isBankLinked = distToBank < 14;
     updateEftposCanvas(time, isBankLinked);
     if (isBankLinked) {
